@@ -5,8 +5,9 @@ current Copilot session into a concise visual history. It shows user goals,
 aggregated work phases, explicit milestones, failures, and session completion
 in either a chronological timeline or a dependency graph.
 
-The extension is dependency-free. It uses only Node.js built-ins and the
-Copilot extension SDK supplied by the CLI.
+The extension runtime is dependency-free. It uses only Node.js built-ins and
+the Copilot extension SDK supplied by the CLI. Playwright is used only for
+development-time browser tests.
 
 ## Features
 
@@ -22,7 +23,8 @@ Copilot extension SDK supplied by the CLI.
 - **Accessible step details** for descriptions, metadata, activity, timing, and
   token breakdowns
 - **Live updates** through Server-Sent Events while the canvas is open
-- **Local, project-scoped persistence** with no package install or build step
+- **Local, project-scoped persistence** with no runtime package install or
+  build step
 
 ## Demo
 
@@ -359,8 +361,8 @@ new document.
 
 ## Development and validation
 
-There is no dependency restore or build step. Edit the `.mjs` files directly,
-then run the repository's dependency-free checks from its root.
+There is no runtime dependency restore or build step. Edit the `.mjs` files
+directly, then run the repository's dependency-free checks from its root.
 
 Run unit tests:
 
@@ -374,6 +376,19 @@ Run syntax checks:
 Get-ChildItem .github\extensions\session-map -Filter *.mjs -Recurse |
   ForEach-Object { node --check $_.FullName }
 ```
+
+Run the browser tests against a deterministic local harness:
+
+```powershell
+npm install
+npx playwright install chromium
+npm run test:ui
+```
+
+The Playwright harness starts the real canvas renderer and SSE server with an
+in-memory state store, so it does not require a live Copilot SDK session. Every
+test uses an ephemeral port bound to `127.0.0.1` and closes its server during
+fixture teardown.
 
 For an interactive validation:
 
