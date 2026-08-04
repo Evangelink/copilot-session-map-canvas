@@ -5,6 +5,12 @@ const VALID_STATUSES = new Set([
     "skipped",
 ]);
 const VALID_VIEWS = new Set(["timeline", "graph"]);
+const TOKEN_FIELDS = [
+    "inputTokens",
+    "outputTokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+];
 
 const PHASES = {
     discovery: {
@@ -114,6 +120,59 @@ function updateMetadata(state, timestamp) {
     return state;
 }
 
+function tokenCount(value) {
+    return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+export function normalizeUsage(raw) {
+    if (!raw || typeof raw !== "object") {
+        return undefined;
+    }
+    const usage = {};
+    for (const field of [...TOKEN_FIELDS, "totalTokens", "modelCalls"]) {
+        const value = tokenCount(raw[field]);
+        if (value !== undefined) {
+            usage[field] = value;
+        }
+    }
+    return Object.keys(usage).length ? usage : undefined;
+}
+
+function accumulateUsage(current, input) {
+    const values = Object.fromEntries(
+        TOKEN_FIELDS.map((field) => [field, tokenCount(input[field])]),
+    );
+    if (TOKEN_FIELDS.every((field) => values[field] === undefined)) {
+        return undefined;
+    }
+
+    const previous = normalizeUsage(current) ?? {};
+    const previousCalls = previous.modelCalls ?? 0;
+    const next = {
+        ...previous,
+        modelCalls: previousCalls + 1,
+    };
+    for (const field of TOKEN_FIELDS) {
+        if (values[field] !== undefined) {
+            next[field] = (previous[field] ?? 0) + values[field];
+        }
+    }
+
+    const hasCompleteTotal =
+        values.inputTokens !== undefined &&
+        values.outputTokens !== undefined &&
+        (previousCalls === 0 || previous.totalTokens !== undefined);
+    if (hasCompleteTotal) {
+        next.totalTokens =
+            (previous.totalTokens ?? 0) +
+            values.inputTokens +
+            values.outputTokens;
+    } else {
+        delete next.totalTokens;
+    }
+    return next;
+}
+
 export function createState({
     sessionId,
     documentId = sessionId,
@@ -142,7 +201,38 @@ export function normalizeState(raw, defaults) {
     if (!raw || raw.version !== 1 || !Array.isArray(raw.steps)) {
         return base;
     }
-    return {
+    const steps = raw.steps
+        .filter(
+            (step) =>
+                step &&
+                typeof step.id === "string" &&
+                typeof step.title === "string" &&
+                VALID_STATUSES.has(step.status),
+        )
+        .map((step) => {
+            const normalized = {
+                ...step,
+                dependencies: Array.isArray(step.dependencies)
+                    ? step.dependencies
+                    : [],
+                toolNames: Array.isArray(step.toolNames)
+                    ? step.toolNames
+                    : [],
+                activityCount:
+                    Number.isSafeInteger(step.activityCount) &&
+                    step.activityCount >= 0
+                        ? step.activityCount
+                        : 0,
+            };
+            const usage = normalizeUsage(step.usage);
+            if (usage) {
+                normalized.usage = usage;
+            } else {
+                delete normalized.usage;
+            }
+            return normalized;
+        });
+    const normalized = {
         ...base,
         ...raw,
         documentId: defaults.documentId,
@@ -152,14 +242,15 @@ export function normalizeState(raw, defaults) {
             Number.isSafeInteger(raw.nextSequence) && raw.nextSequence > 0
                 ? raw.nextSequence
                 : raw.steps.length + 1,
-        steps: raw.steps.filter(
-            (step) =>
-                step &&
-                typeof step.id === "string" &&
-                typeof step.title === "string" &&
-                VALID_STATUSES.has(step.status),
-        ),
+        steps,
     };
+    const usage = normalizeUsage(raw.usage);
+    if (usage) {
+        normalized.usage = usage;
+    } else {
+        delete normalized.usage;
+    }
+    return normalized;
 }
 
 export function recordSessionStart(state, input) {
@@ -291,6 +382,23 @@ export function recordToolActivity(state, input) {
         state.activePhaseId = null;
     }
     state.lastRecordedStepId = phase.id;
+    return updateMetadata(state, timestamp);
+}
+
+export function recordUsage(state, input) {
+    const timestamp = isoTimestamp(input.timestamp);
+    const sessionUsage = accumulateUsage(state.usage, input);
+    if (!sessionUsage) {
+        return state;
+    }
+
+    state.usage = sessionUsage;
+    const stepId = state.activePhaseId ?? state.lastRecordedStepId;
+    const step = state.steps.find((candidate) => candidate.id === stepId);
+    if (step) {
+        step.usage = accumulateUsage(step.usage, input);
+        step.updatedAt = timestamp;
+    }
     return updateMetadata(state, timestamp);
 }
 

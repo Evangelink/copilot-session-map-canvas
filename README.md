@@ -17,6 +17,10 @@ Copilot extension SDK supplied by the CLI.
   work phases
 - **Explicit dependencies** between milestones, with validation against
   missing references, self-dependencies, and cycles
+- **Exact token usage** from supported SDK events, summarized per session and
+  attributed to the active goal, phase, or milestone
+- **Accessible step details** for descriptions, metadata, activity, timing, and
+  token breakdowns
 - **Live updates** through Server-Sent Events while the canvas is open
 - **Local, project-scoped persistence** with no package install or build step
 
@@ -26,9 +30,12 @@ Copilot extension SDK supplied by the CLI.
 > Copilot session and capture both the Timeline and Graph views.
 
 The **Timeline** view is best for reading progress in order: goals, phases,
-milestones, failures, and completion appear with their status and timestamps.
+milestones, failures, and completion appear with their status, timestamps, token
+totals, and expandable details. The details include description, source,
+category, dependencies, tool activity, duration when derivable, and the
+available token breakdown.
 The **Graph** view uses the same steps and their dependencies to show how one
-piece of work leads to another.
+piece of work leads to another while keeping token totals compact.
 
 A useful demo flow is:
 
@@ -185,6 +192,8 @@ All canvas and action inputs use JSON Schema validation.
   operation phases.
 - `session_map_record_step` captures semantic outcomes that cannot be inferred
   reliably from raw tool events.
+- Live `assistant.usage` events add exact input, output, cache-read, and
+  cache-write counts to the session and the active goal, phase, or milestone.
 - `onSessionEnd` finalizes the active phase and records the session outcome.
 
 Automatic phases are intentionally coarse. Record semantic steps when the
@@ -202,12 +211,13 @@ service. State is written locally under:
 The canvas web server listens only on `127.0.0.1`, uses an operating-system
 assigned ephemeral port, and closes with its canvas instance.
 
-Persisted automatic activity contains high-level summaries and tool names.
-Tool arguments and full tool output are not written to the state file. User
-goals and descriptions supplied to semantic steps are persisted, so avoid
-placing secrets or other sensitive information in those fields. The state
-files remain after the canvas closes; delete the workspace's
-`.copilot/session-map/` directory when you no longer want to retain them.
+Persisted automatic activity contains high-level summaries, tool names, and
+numeric usage counters. Tool arguments, assistant output, and prompt content are
+not persisted to calculate usage. User goals and descriptions supplied to
+semantic steps are persisted as part of the map, so avoid placing secrets or
+other sensitive information in those fields. The state files remain after the
+canvas closes; delete the workspace's `.copilot/session-map/` directory when you
+no longer want to retain them.
 
 ## Architecture
 
@@ -246,6 +256,14 @@ context instead of silently falling back to memory.
   "sessionId": "<Copilot session id>",
   "view": "timeline",
   "activePhaseId": "phase-3",
+  "usage": {
+    "inputTokens": 1200,
+    "outputTokens": 300,
+    "cacheReadTokens": 800,
+    "cacheWriteTokens": 100,
+    "totalTokens": 1500,
+    "modelCalls": 2
+  },
   "completion": null,
   "steps": [
     {
@@ -257,12 +275,25 @@ context instead of silently falling back to memory.
       "dependencies": ["goal-1"],
       "toolNames": ["apply_patch"],
       "activityCount": 1,
+      "usage": {
+        "inputTokens": 1200,
+        "outputTokens": 300,
+        "cacheReadTokens": 800,
+        "cacheWriteTokens": 100,
+        "totalTokens": 1500,
+        "modelCalls": 2
+      },
       "createdAt": "2026-08-04T12:00:00.000Z",
       "updatedAt": "2026-08-04T12:00:00.000Z"
     }
   ]
 }
 ```
+
+Usage fields are optional, so state documents written before token tracking
+remain valid. `totalTokens` is the exact sum of reported input and output
+tokens. It is omitted when any captured model call does not provide both values;
+cache counters remain separate and are not added again to the total.
 
 ## Troubleshooting
 
@@ -312,6 +343,11 @@ new document.
 
 - The SDK exposes live hooks, not a semantic replay API. History from before
   the extension was activated may not be available.
+- `assistant.usage` is a transient per-model-call event with no Session Map step
+  id. The extension attributes each event to the active step when it arrives.
+  Usage emitted while the extension is stopped cannot be replayed, and work
+  inside a single active phase cannot be divided more precisely by the current
+  SDK.
 - Automatic tool phases are intentionally coarse. Semantic phase titles and
   outcomes depend on Copilot calling `session_map_record_step`.
 - The current SDK failure hook fires for `failure` results only. Rejected,

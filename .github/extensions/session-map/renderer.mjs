@@ -69,7 +69,7 @@ export function renderHtml({ documentId }) {
     }
     .summary {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 18px;
     }
@@ -148,6 +148,7 @@ export function renderHtml({ documentId }) {
       justify-content: space-between;
       gap: 12px;
     }
+    .step-heading-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .step-title { margin: 0; font-size: 15px; font-weight: var(--font-weight-semibold, 600); }
     .step-description { margin: 5px 0 0; color: var(--text-color-muted, #59636e); }
     .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--text-color-muted, #59636e); }
@@ -162,6 +163,18 @@ export function renderHtml({ documentId }) {
     .badge.failure { color: var(--true-color-red, #cf222e); border-color: var(--true-color-red-muted, #ff8182); }
     .badge.success { color: #1a7f37; }
     .badge.in_progress { color: var(--true-color-blue, #0969da); border-color: var(--true-color-blue-muted, #54aeff); }
+    .token-total { white-space: nowrap; color: var(--text-color-muted, #59636e); font-size: 12px; }
+    details { margin-top: 10px; border-top: 1px solid var(--border-color-default, #d1d9e0); padding-top: 8px; }
+    details summary { width: fit-content; cursor: pointer; color: var(--text-color-muted, #59636e); font-weight: var(--font-weight-semibold, 600); }
+    details summary:focus-visible { outline: 2px solid var(--color-focus-outline, #0969da); outline-offset: 2px; }
+    .details-grid {
+      display: grid;
+      grid-template-columns: minmax(110px, auto) minmax(0, 1fr);
+      gap: 6px 14px;
+      margin: 10px 0 0;
+    }
+    .details-grid dt { color: var(--text-color-muted, #59636e); }
+    .details-grid dd { margin: 0; overflow-wrap: anywhere; }
     .graph-wrap {
       overflow: auto;
       border: 1px solid var(--border-color-default, #d1d9e0);
@@ -193,6 +206,10 @@ export function renderHtml({ documentId }) {
       .header { flex-direction: column; }
       .summary { grid-template-columns: 1fr; }
       .controls { width: 100%; justify-content: space-between; }
+      .step-top { flex-direction: column; }
+      .step-heading-meta { justify-content: flex-start; }
+      .details-grid { grid-template-columns: 1fr; gap: 2px; }
+      .details-grid dd { margin-bottom: 6px; }
     }
   </style>
 </head>
@@ -213,6 +230,7 @@ export function renderHtml({ documentId }) {
     </header>
     <section class="summary" aria-label="Session summary">
       <div class="summary-card"><span class="summary-label">Steps</span><span class="summary-value" id="stepCount">0</span></div>
+      <div class="summary-card"><span class="summary-label">Total tokens</span><span class="summary-value" id="tokenTotal">Unknown</span></div>
       <div class="summary-card"><span class="summary-label">Outcome</span><span class="summary-value" id="outcome">In progress</span></div>
       <div class="summary-card"><span class="summary-label">Updates</span><span class="summary-value connection" id="connection" role="status">Connecting</span></div>
     </section>
@@ -235,6 +253,7 @@ export function renderHtml({ documentId }) {
       outcome: document.getElementById("outcome"),
       refresh: document.getElementById("refreshButton"),
       stepCount: document.getElementById("stepCount"),
+      tokenTotal: document.getElementById("tokenTotal"),
       timeline: document.getElementById("timelineView"),
       timelineButton: document.getElementById("timelineButton"),
     };
@@ -253,6 +272,41 @@ export function renderHtml({ documentId }) {
       return Number.isNaN(date.getTime())
         ? "Unknown time"
         : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
+    }
+
+    function formatTokens(value) {
+      return Number.isSafeInteger(value) && value >= 0
+        ? new Intl.NumberFormat().format(value)
+        : "Unknown";
+    }
+
+    function tokenTotal(value) {
+      const formatted = formatTokens(value);
+      return formatted === "Unknown" ? "Tokens unknown" : formatted + " tokens";
+    }
+
+    function formatDuration(startValue, endValue) {
+      const start = new Date(startValue);
+      const end = new Date(endValue);
+      const milliseconds = end.getTime() - start.getTime();
+      if (!Number.isFinite(milliseconds) || milliseconds < 0) return "Unknown";
+      if (milliseconds < 1000) return "<1 second";
+      const seconds = Math.floor(milliseconds / 1000);
+      if (seconds < 60) return seconds + " second" + (seconds === 1 ? "" : "s");
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return minutes + " minute" + (minutes === 1 ? "" : "s");
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + " hour" + (hours === 1 ? "" : "s");
+      const days = Math.floor(hours / 24);
+      return days + " day" + (days === 1 ? "" : "s");
+    }
+
+    function appendDetail(list, label, value) {
+      const term = document.createElement("dt");
+      term.append(text(label));
+      const description = document.createElement("dd");
+      description.append(text(value));
+      list.append(term, description);
     }
 
     function showError(message) {
@@ -279,7 +333,13 @@ export function renderHtml({ documentId }) {
         const badge = document.createElement("span");
         badge.className = "badge " + step.status;
         badge.append(text(formatStatus(step.status)));
-        top.append(title, badge);
+        const headingMeta = document.createElement("div");
+        headingMeta.className = "step-heading-meta";
+        const tokens = document.createElement("span");
+        tokens.className = "token-total";
+        tokens.append(text(tokenTotal(step.usage?.totalTokens)));
+        headingMeta.append(tokens, badge);
+        top.append(title, headingMeta);
         card.append(top);
         if (step.description) {
           const description = document.createElement("p");
@@ -301,6 +361,29 @@ export function renderHtml({ documentId }) {
           meta.append(dependencies);
         }
         card.append(meta);
+        const details = document.createElement("details");
+        const detailsSummary = document.createElement("summary");
+        detailsSummary.append(text("Step details"));
+        const detailsGrid = document.createElement("dl");
+        detailsGrid.className = "details-grid";
+        appendDetail(detailsGrid, "Description", step.description || "No description provided.");
+        appendDetail(detailsGrid, "Status", formatStatus(step.status));
+        appendDetail(detailsGrid, "Source", step.source || "Unknown");
+        appendDetail(detailsGrid, "Category", step.category || "Not applicable");
+        appendDetail(detailsGrid, "Dependencies", step.dependencies.length ? step.dependencies.join(", ") : "None");
+        appendDetail(detailsGrid, "Tools", step.toolNames?.length ? step.toolNames.join(", ") : "None recorded");
+        appendDetail(detailsGrid, "Activity count", Number.isSafeInteger(step.activityCount) ? String(step.activityCount) : "Unknown");
+        appendDetail(detailsGrid, "Started", formatTime(step.createdAt));
+        appendDetail(detailsGrid, "Updated", formatTime(step.updatedAt));
+        appendDetail(detailsGrid, "Duration", formatDuration(step.createdAt, step.updatedAt));
+        appendDetail(detailsGrid, "Total tokens", formatTokens(step.usage?.totalTokens));
+        appendDetail(detailsGrid, "Input tokens", formatTokens(step.usage?.inputTokens));
+        appendDetail(detailsGrid, "Output tokens", formatTokens(step.usage?.outputTokens));
+        appendDetail(detailsGrid, "Cache-read tokens", formatTokens(step.usage?.cacheReadTokens));
+        appendDetail(detailsGrid, "Cache-write tokens", formatTokens(step.usage?.cacheWriteTokens));
+        appendDetail(detailsGrid, "Model calls", formatTokens(step.usage?.modelCalls));
+        details.append(detailsSummary, detailsGrid);
+        card.append(details);
         item.append(dot, card);
         list.append(item);
       }
@@ -371,7 +454,7 @@ export function renderHtml({ documentId }) {
           x: position.x + 12,
           y: position.y + 47,
         });
-        meta.append(text(formatStatus(step.status) + " • " + step.id));
+        meta.append(text(formatStatus(step.status) + " • " + tokenTotal(step.usage?.totalTokens)));
         group.append(rect, title, meta);
         svg.append(group);
       }
@@ -379,7 +462,7 @@ export function renderHtml({ documentId }) {
       accessibleList.className = "sr-only";
       for (const step of steps) {
         const item = document.createElement("li");
-        item.append(text(step.title + ", " + formatStatus(step.status) + (step.dependencies.length ? ", depends on " + step.dependencies.join(", ") : "")));
+        item.append(text(step.title + ", " + formatStatus(step.status) + ", " + tokenTotal(step.usage?.totalTokens) + (step.dependencies.length ? ", depends on " + step.dependencies.join(", ") : "")));
         accessibleList.append(item);
       }
       wrapper.append(svg, accessibleList);
@@ -391,6 +474,7 @@ export function renderHtml({ documentId }) {
       showError("");
       const steps = state.steps ?? [];
       elements.stepCount.textContent = String(steps.length);
+      elements.tokenTotal.textContent = formatTokens(state.usage?.totalTokens);
       elements.outcome.textContent = state.completion
         ? formatStatus(state.completion.status)
         : steps.some((step) => step.status === "failure")

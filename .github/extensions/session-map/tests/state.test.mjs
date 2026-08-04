@@ -5,8 +5,10 @@ import {
     classifyToolActivity,
     completeSession,
     createState,
+    normalizeState,
     recordSemanticStep,
     recordToolActivity,
+    recordUsage,
     recordUserGoal,
     StateValidationError,
 } from "../state.mjs";
@@ -226,4 +228,113 @@ test("classifies commands without persisting command contents", () => {
         classifyToolActivity("powershell", { command: "git push origin HEAD" }),
         "publication",
     );
+});
+
+test("attributes exact token usage to the active step and session", () => {
+    const value = state();
+    recordUserGoal(value, "Implement token tracking.", START);
+    recordUsage(value, {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 40,
+        cacheWriteTokens: 10,
+        timestamp: "2026-08-04T12:01:00.000Z",
+    });
+    recordToolActivity(value, {
+        toolName: "apply_patch",
+        status: "success",
+        timestamp: "2026-08-04T12:02:00.000Z",
+    });
+    recordUsage(value, {
+        inputTokens: 200,
+        outputTokens: 50,
+        cacheReadTokens: 75,
+        timestamp: "2026-08-04T12:03:00.000Z",
+    });
+
+    assert.deepEqual(value.usage, {
+        inputTokens: 300,
+        outputTokens: 75,
+        cacheReadTokens: 115,
+        cacheWriteTokens: 10,
+        totalTokens: 375,
+        modelCalls: 2,
+    });
+    assert.equal(value.steps[0].usage.totalTokens, 125);
+    assert.equal(value.steps[1].usage.totalTokens, 250);
+});
+
+test("does not report a total when an attributed call lacks input or output", () => {
+    const value = state();
+    recordUserGoal(value, "Track supported usage only.", START);
+    recordUsage(value, {
+        inputTokens: 100,
+        outputTokens: 25,
+        timestamp: "2026-08-04T12:01:00.000Z",
+    });
+    recordUsage(value, {
+        inputTokens: 50,
+        timestamp: "2026-08-04T12:02:00.000Z",
+    });
+
+    assert.equal(value.usage.inputTokens, 150);
+    assert.equal(value.usage.outputTokens, 25);
+    assert.equal(value.usage.totalTokens, undefined);
+    assert.equal(value.steps[0].usage.totalTokens, undefined);
+});
+
+test("attributes usage to the latest semantic milestone", () => {
+    const value = state();
+    recordSemanticStep(
+        value,
+        {
+            id: "implementation",
+            title: "Implementing usage",
+            status: "in_progress",
+        },
+        { timestamp: START },
+    );
+    recordUsage(value, {
+        inputTokens: 80,
+        outputTokens: 20,
+        timestamp: "2026-08-04T12:01:00.000Z",
+    });
+
+    assert.equal(value.steps[0].usage.totalTokens, 100);
+    assert.equal(value.steps[0].updatedAt, "2026-08-04T12:01:00.000Z");
+});
+
+test("loads version 1 state without usage fields", () => {
+    const normalized = normalizeState(
+        {
+            version: 1,
+            view: "timeline",
+            nextSequence: 2,
+            steps: [
+                {
+                    id: "goal-1",
+                    kind: "goal",
+                    title: "Existing goal",
+                    description: "Created before usage tracking.",
+                    status: "success",
+                    source: "automatic",
+                    category: null,
+                    dependencies: [],
+                    toolNames: [],
+                    activityCount: 0,
+                    createdAt: START,
+                    updatedAt: START,
+                },
+            ],
+        },
+        {
+            sessionId: "session-1",
+            documentId: "session-1",
+            timestamp: START,
+        },
+    );
+
+    assert.equal(normalized.usage, undefined);
+    assert.equal(normalized.steps[0].usage, undefined);
+    assert.equal(normalized.steps[0].title, "Existing goal");
 });
