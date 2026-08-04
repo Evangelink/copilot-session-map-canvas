@@ -2,7 +2,7 @@
 
 Session Map is a project-scoped GitHub Copilot canvas extension that turns the current Copilot session into a concise visual history. It shows user goals, aggregated work phases, explicit milestones, failures, and session completion in either a chronological timeline or a dependency graph.
 
-The extension is intentionally dependency-free. It uses only Node.js built-ins and the Copilot extension SDK supplied by the CLI.
+The extension runtime is intentionally dependency-free. It uses only Node.js built-ins and the Copilot extension SDK supplied by the CLI. Playwright is used only for development-time browser tests.
 
 ## Demo
 
@@ -115,5 +115,15 @@ Run syntax checks:
 Get-ChildItem .github\extensions\session-map -Filter *.mjs -Recurse |
   ForEach-Object { node --check $_.FullName }
 ```
+
+Run the browser tests against a deterministic local harness:
+
+```powershell
+npm install
+npx playwright install chromium
+npm run test:ui
+```
+
+The Playwright harness starts the real canvas renderer and SSE server with an in-memory state store, so it does not require a live Copilot SDK session. Every test uses an ephemeral port bound to `127.0.0.1` and closes its server during fixture teardown.
 
 After editing, reload extensions, inspect `session-map`, then validate `list_canvas_capabilities`, `open_canvas`, and `invoke_canvas_action`. The server binds only to `127.0.0.1` and asks the operating system for an ephemeral port.
