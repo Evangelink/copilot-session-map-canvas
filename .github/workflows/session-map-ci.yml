@@ -1,0 +1,54 @@
+name: Session Map CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Node tests and syntax
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Run node:test suite
+        shell: pwsh
+        run: |
+          $tests = Get-ChildItem .github/extensions/session-map/tests -Recurse -Filter *.test.mjs -File
+          if ($tests.Count -eq 0) {
+            throw "No node:test files found."
+          }
+          node --test $tests.FullName
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Syntax-check modules
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem .github/extensions/session-map -Recurse -Filter *.mjs -File
+          if ($files.Count -eq 0) {
+            throw "No .mjs files found."
+          }
+          foreach ($file in $files) {
+            node --check $file.FullName
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
