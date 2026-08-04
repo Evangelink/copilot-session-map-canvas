@@ -78,3 +78,51 @@ test("Windows replacement fallback restores prior state when replacement fails",
     assert.equal(await fs.readFile(path, "utf8"), original);
     assert.equal(renameCall, 4);
 });
+
+test("loads a persisted version 1 document without usage fields", async (context) => {
+    const workspacePath = await fs.mkdtemp(join(tmpdir(), "session-map-store-"));
+    context.after(() =>
+        fs.rm(workspacePath, { force: true, recursive: true }),
+    );
+    const store = new StateStore({
+        workspacePath,
+        sessionId: "session-1",
+    });
+    const path = store.pathFor("session-1");
+    await fs.mkdir(join(workspacePath, ".copilot", "session-map"), {
+        recursive: true,
+    });
+    await fs.writeFile(
+        path,
+        JSON.stringify({
+            version: 1,
+            documentId: "session-1",
+            sessionId: "session-1",
+            view: "timeline",
+            nextSequence: 2,
+            steps: [
+                {
+                    id: "goal-1",
+                    kind: "goal",
+                    title: "Existing goal",
+                    description: "Written before usage tracking.",
+                    status: "success",
+                    source: "automatic",
+                    category: null,
+                    dependencies: [],
+                    toolNames: [],
+                    activityCount: 0,
+                    createdAt: "2026-08-04T12:00:00.000Z",
+                    updatedAt: "2026-08-04T12:00:00.000Z",
+                },
+            ],
+        }),
+        "utf8",
+    );
+
+    const loaded = await store.load("session-1");
+
+    assert.equal(loaded.usage, undefined);
+    assert.equal(loaded.steps[0].usage, undefined);
+    assert.equal(loaded.steps[0].title, "Existing goal");
+});

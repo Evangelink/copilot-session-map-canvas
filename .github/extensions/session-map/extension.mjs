@@ -9,6 +9,7 @@ import {
     recordSemanticStep,
     recordSessionStart,
     recordToolActivity,
+    recordUsage,
     recordUserGoal,
     setPreferredView,
 } from "./state.mjs";
@@ -311,4 +312,25 @@ session = await joinSession({
 store = new StateStore({
     workspacePath: session.workspacePath,
     sessionId: session.sessionId,
+});
+
+session.on("assistant.usage", (event) => {
+    if (!store.available) {
+        return;
+    }
+    void store
+        .mutate(session.sessionId, (state) =>
+            recordUsage(state, {
+                inputTokens: event.data.inputTokens,
+                outputTokens: event.data.outputTokens,
+                cacheReadTokens: event.data.cacheReadTokens,
+                cacheWriteTokens: event.data.cacheWriteTokens,
+                timestamp: event.timestamp,
+            }),
+        )
+        .catch((error) =>
+            session.log(`Session Map could not record token usage: ${error.message}`, {
+                level: "warning",
+            }),
+        );
 });
