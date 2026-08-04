@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 
@@ -10,10 +10,57 @@ function storageKey(documentId) {
     return createHash("sha256").update(documentId).digest("hex").slice(0, 24);
 }
 
+async function cleanupAndThrow(fileSystem, temporaryPath, error) {
+    try {
+        await fileSystem.rm(temporaryPath, { force: true });
+    } catch (cleanupError) {
+        throw new AggregateError(
+            [error, cleanupError],
+            "State replacement failed and its temporary file could not be removed.",
+        );
+    }
+    throw error;
+}
+
+async function replaceFile(fileSystem, temporaryPath, destinationPath) {
+    try {
+        await fileSystem.rename(temporaryPath, destinationPath);
+        return;
+    } catch (error) {
+        if (error.code !== "EEXIST" && error.code !== "EPERM") {
+            await cleanupAndThrow(fileSystem, temporaryPath, error);
+        }
+    }
+
+    const backupPath = `${destinationPath}.${process.pid}.${randomUUID()}.bak`;
+    try {
+        await fileSystem.rename(destinationPath, backupPath);
+    } catch (error) {
+        await cleanupAndThrow(fileSystem, temporaryPath, error);
+    }
+
+    try {
+        await fileSystem.rename(temporaryPath, destinationPath);
+    } catch (replacementError) {
+        try {
+            await fileSystem.rename(backupPath, destinationPath);
+        } catch (restoreError) {
+            throw new AggregateError(
+                [replacementError, restoreError],
+                `State replacement and restoration failed. The previous state remains at "${backupPath}".`,
+            );
+        }
+        await cleanupAndThrow(fileSystem, temporaryPath, replacementError);
+    }
+
+    await fileSystem.rm(backupPath, { force: true });
+}
+
 export class StateStore {
-    constructor({ workspacePath, sessionId }) {
+    constructor({ workspacePath, sessionId, fileSystem = fs }) {
         this.workspacePath = workspacePath;
         this.sessionId = sessionId;
+        this.fileSystem = fileSystem;
         this.rootPath = workspacePath
             ? join(workspacePath, ".copilot", "session-map")
             : null;
@@ -45,7 +92,10 @@ export class StateStore {
             sessionId: this.sessionId,
         };
         try {
-            const content = await fs.readFile(this.pathFor(documentId), "utf8");
+            const content = await this.fileSystem.readFile(
+                this.pathFor(documentId),
+                "utf8",
+            );
             return normalizeState(JSON.parse(content), defaults);
         } catch (error) {
             if (error.code === "ENOENT") {
@@ -70,23 +120,15 @@ export class StateStore {
 
     async save(documentId, state) {
         this.assertAvailable();
-        await fs.mkdir(this.rootPath, { recursive: true });
+        await this.fileSystem.mkdir(this.rootPath, { recursive: true });
         const path = this.pathFor(documentId);
         const temporaryPath = `${path}.${process.pid}.tmp`;
-        await fs.writeFile(
+        await this.fileSystem.writeFile(
             temporaryPath,
             `${JSON.stringify(state, null, 2)}\n`,
             "utf8",
         );
-        try {
-            await fs.rename(temporaryPath, path);
-        } catch (error) {
-            if (error.code !== "EEXIST" && error.code !== "EPERM") {
-                throw error;
-            }
-            await fs.rm(path, { force: true });
-            await fs.rename(temporaryPath, path);
-        }
+        await replaceFile(this.fileSystem, temporaryPath, path);
     }
 
     async ensure(documentId) {

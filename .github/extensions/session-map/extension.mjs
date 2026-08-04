@@ -154,6 +154,12 @@ const canvas = createCanvas({
         try {
             const activeStore = requireStore();
             const documentId = ctx.input?.documentId ?? session.sessionId;
+            if (ctx.input?.view) {
+                await updateView(documentId, { view: ctx.input.view });
+            } else {
+                await activeStore.ensure(documentId);
+            }
+
             let entry = servers.get(ctx.instanceId);
 
             if (entry && entry.documentId !== documentId) {
@@ -175,12 +181,6 @@ const canvas = createCanvas({
                     },
                 });
                 servers.set(ctx.instanceId, entry);
-            }
-
-            if (ctx.input?.view) {
-                await updateView(documentId, { view: ctx.input.view });
-            } else {
-                await activeStore.ensure(documentId);
             }
 
             return {

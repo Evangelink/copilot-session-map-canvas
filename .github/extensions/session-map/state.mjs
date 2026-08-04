@@ -51,8 +51,11 @@ function isoTimestamp(value = new Date().toISOString()) {
 }
 
 function allocateId(state, prefix) {
-    const id = `${prefix}-${state.nextSequence}`;
-    state.nextSequence += 1;
+    let id;
+    do {
+        id = `${prefix}-${state.nextSequence}`;
+        state.nextSequence += 1;
+    } while (state.steps.some((step) => step.id === id));
     return id;
 }
 

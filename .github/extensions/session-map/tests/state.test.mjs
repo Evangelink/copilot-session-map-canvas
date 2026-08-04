@@ -118,6 +118,56 @@ test("allocates an id when an optional semantic step id is omitted or empty", ()
     assert.deepEqual(value.steps[1].dependencies, ["step-1"]);
 });
 
+test("generated ids skip explicit ids for steps, goals, and phases", () => {
+    const stepState = state();
+    recordSemanticStep(
+        stepState,
+        { id: "step-1", title: "Explicit step" },
+        { timestamp: START },
+    );
+    recordSemanticStep(
+        stepState,
+        { title: "Generated step" },
+        { timestamp: "2026-08-04T12:01:00.000Z" },
+    );
+    assert.deepEqual(
+        stepState.steps.map((step) => step.id),
+        ["step-1", "step-2"],
+    );
+
+    const goalState = state();
+    recordSemanticStep(
+        goalState,
+        { id: "goal-1", title: "Explicit goal id" },
+        { timestamp: START },
+    );
+    recordUserGoal(
+        goalState,
+        "Generated goal.",
+        "2026-08-04T12:01:00.000Z",
+    );
+    assert.deepEqual(
+        goalState.steps.map((step) => step.id),
+        ["goal-1", "goal-2"],
+    );
+
+    const phaseState = state();
+    recordSemanticStep(
+        phaseState,
+        { id: "phase-1", title: "Explicit phase id" },
+        { timestamp: START },
+    );
+    recordToolActivity(phaseState, {
+        toolName: "rg",
+        status: "success",
+        timestamp: "2026-08-04T12:01:00.000Z",
+    });
+    assert.deepEqual(
+        phaseState.steps.map((step) => step.id),
+        ["phase-1", "phase-2"],
+    );
+});
+
 test("rejects missing and cyclic dependencies", () => {
     const value = state();
     recordSemanticStep(
