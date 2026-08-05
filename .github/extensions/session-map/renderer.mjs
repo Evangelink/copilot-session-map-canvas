@@ -69,7 +69,7 @@ export function renderHtml({ documentId }) {
     }
     .summary {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
       gap: 10px;
       margin-bottom: 18px;
     }
@@ -185,7 +185,7 @@ export function renderHtml({ documentId }) {
     .badge.failure { color: var(--true-color-red, #cf222e); border-color: var(--true-color-red-muted, #ff8182); }
     .badge.success { color: #1a7f37; }
     .badge.in_progress { color: var(--true-color-blue, #0969da); border-color: var(--true-color-blue-muted, #54aeff); }
-    .token-total { white-space: nowrap; color: var(--text-color-muted, #59636e); font-size: 12px; }
+    .usage-total { white-space: nowrap; color: var(--text-color-muted, #59636e); font-size: 12px; }
     .locate-chat {
       border: 0;
       border-radius: 6px;
@@ -310,6 +310,7 @@ export function renderHtml({ documentId }) {
     <section class="summary" aria-label="Session summary">
       <div class="summary-card"><span class="summary-label">Steps</span><span class="summary-value" id="stepCount">0</span></div>
       <div class="summary-card"><span class="summary-label">Total tokens</span><span class="summary-value" id="tokenTotal">Unknown</span></div>
+      <div class="summary-card"><span class="summary-label">AI Credit</span><span class="summary-value" id="aiCreditTotal">Unknown</span></div>
       <div class="summary-card"><span class="summary-label">Outcome</span><span class="summary-value" id="outcome">In progress</span></div>
       <div class="summary-card"><span class="summary-label">Updates</span><span class="summary-value connection" id="connection" role="status">Connecting</span></div>
     </section>
@@ -335,6 +336,7 @@ export function renderHtml({ documentId }) {
   <script>
     const documentId = ${JSON.stringify(documentId)};
     const elements = {
+      aiCreditTotal: document.getElementById("aiCreditTotal"),
       connection: document.getElementById("connection"),
       empty: document.getElementById("empty"),
       error: document.getElementById("error"),
@@ -377,6 +379,22 @@ export function renderHtml({ documentId }) {
     function tokenTotal(value) {
       const formatted = formatTokens(value);
       return formatted === "Unknown" ? "Tokens unknown" : formatted + " tokens";
+    }
+
+    function formatAiCredits(value) {
+      if (!Number.isFinite(value) || value < 0) return "Unknown";
+      const credits = value / 1_000_000_000;
+      if (credits > 0 && credits < 0.01) return "<0.01";
+      return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(credits);
+    }
+
+    function aiCreditTotal(value) {
+      const formatted = formatAiCredits(value);
+      return formatted === "Unknown" ? "AIC unknown" : formatted + " AIC";
+    }
+
+    function usageTotal(usage) {
+      return tokenTotal(usage?.totalTokens) + " · " + aiCreditTotal(usage?.totalNanoAiu);
     }
 
     function formatDuration(startValue, endValue) {
@@ -430,15 +448,15 @@ export function renderHtml({ documentId }) {
         badge.append(text(formatStatus(step.status)));
         const headingMeta = document.createElement("div");
         headingMeta.className = "step-heading-meta";
-        const tokens = document.createElement("span");
-        tokens.className = "token-total";
-        tokens.append(text(tokenTotal(step.usage?.totalTokens)));
+        const usage = document.createElement("span");
+        usage.className = "usage-total";
+        usage.append(text(usageTotal(step.usage)));
         const locateChat = document.createElement("button");
         locateChat.type = "button";
         locateChat.className = "locate-chat";
         locateChat.append(text("Locate chat"));
         locateChat.setAttribute("aria-label", "Locate chat activity for " + step.title);
-        headingMeta.append(locateChat, tokens, badge);
+        headingMeta.append(locateChat, usage, badge);
         top.append(title, headingMeta);
         card.append(top);
         if (step.description) {
@@ -481,6 +499,7 @@ export function renderHtml({ documentId }) {
         appendDetail(detailsGrid, "Output tokens", formatTokens(step.usage?.outputTokens));
         appendDetail(detailsGrid, "Cache-read tokens", formatTokens(step.usage?.cacheReadTokens));
         appendDetail(detailsGrid, "Cache-write tokens", formatTokens(step.usage?.cacheWriteTokens));
+        appendDetail(detailsGrid, "AI Credit", aiCreditTotal(step.usage?.totalNanoAiu));
         appendDetail(detailsGrid, "Model calls", formatTokens(step.usage?.modelCalls));
         appendDetail(detailsGrid, "Chat anchors", String(step.chat?.eventIds?.length ?? 0));
         details.append(detailsSummary, detailsGrid);
@@ -560,7 +579,7 @@ export function renderHtml({ documentId }) {
           x: position.x + 12,
           y: position.y + 47,
         });
-        meta.append(text(formatStatus(step.status) + " • " + tokenTotal(step.usage?.totalTokens)));
+        meta.append(text(formatStatus(step.status) + " • " + usageTotal(step.usage)));
         group.append(rect, title, meta);
         svg.append(group);
       }
@@ -568,7 +587,7 @@ export function renderHtml({ documentId }) {
       accessibleList.className = "sr-only";
       for (const step of steps) {
         const item = document.createElement("li");
-        item.append(text(step.title + ", " + formatStatus(step.status) + ", " + tokenTotal(step.usage?.totalTokens) + (step.dependencies.length ? ", depends on " + step.dependencies.join(", ") : "")));
+        item.append(text(step.title + ", " + formatStatus(step.status) + ", " + usageTotal(step.usage) + (step.dependencies.length ? ", depends on " + step.dependencies.join(", ") : "")));
         accessibleList.append(item);
       }
       wrapper.append(svg, accessibleList);
@@ -685,6 +704,7 @@ export function renderHtml({ documentId }) {
       const steps = state.steps ?? [];
       elements.stepCount.textContent = String(steps.length);
       elements.tokenTotal.textContent = formatTokens(state.usage?.totalTokens);
+      elements.aiCreditTotal.textContent = aiCreditTotal(state.usage?.totalNanoAiu);
       elements.outcome.textContent = state.completion
         ? formatStatus(state.completion.status)
         : steps.some((step) => step.status === "failure")

@@ -2,6 +2,7 @@ import {
     createState,
     recordChatEvent,
     recordSemanticStep,
+    recordUsage,
     setPreferredView,
 } from "../../state.mjs";
 import { startCanvasServer } from "../../server.mjs";
@@ -43,6 +44,12 @@ export function stateWithSteps() {
         turnId: "turn-1",
         timestamp: "2026-08-04T12:01:30.000Z",
     });
+    recordUsage(state, {
+        inputTokens: 100,
+        outputTokens: 25,
+        totalNanoAiu: 1_250_000_000,
+        timestamp: "2026-08-04T12:01:45.000Z",
+    });
     recordSemanticStep(
         state,
         {
@@ -64,6 +71,12 @@ export function stateWithSteps() {
         toolCallId: "tool-implementation",
         turnId: "turn-2",
         timestamp: "2026-08-04T12:02:30.000Z",
+    });
+    recordUsage(state, {
+        inputTokens: 200,
+        outputTokens: 50,
+        totalNanoAiu: 2_500_000_000,
+        timestamp: "2026-08-04T12:02:45.000Z",
     });
     return state;
 }

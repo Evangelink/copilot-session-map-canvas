@@ -21,10 +21,10 @@ development-time browser tests.
   work phases
 - **Explicit dependencies** between milestones, with validation against
   missing references, self-dependencies, and cycles
-- **Exact token usage** from supported SDK events, summarized per session and
-  attributed to the active goal, phase, or milestone
+- **Exact token and AI Credit usage** from supported SDK events, summarized per
+  session and attributed to the active goal, phase, or milestone
 - **Accessible step details** for descriptions, metadata, activity, timing, and
-  token breakdowns
+  token breakdowns and AI Credit (AIC)
 - **`/map` slash command** to open or focus the canvas immediately
 - **Live updates** through Server-Sent Events while the canvas is open
 - **Chat correlation** using stable session event, turn, message, and tool-call
@@ -39,11 +39,11 @@ development-time browser tests.
 
 The **Timeline** view is best for reading progress in order: goals, phases,
 milestones, failures, and completion appear with their status, timestamps, token
-totals, and expandable details. The details include description, source,
+and AI Credit totals, and expandable details. The details include description, source,
 category, dependencies, tool activity, duration when derivable, and the
 available token breakdown.
 The **Graph** view uses the same steps and their dependencies to show how one
-piece of work leads to another while keeping token totals compact.
+piece of work leads to another while keeping token and AI Credit totals compact.
 
 A useful demo flow is:
 
@@ -221,8 +221,9 @@ All canvas and action inputs use JSON Schema validation.
   validation, publication, coordination, or general operation phases.
 - `session_map_record_step` captures semantic outcomes that cannot be inferred
   reliably from raw tool events.
-- Live `assistant.usage` events add exact input, output, cache-read, and
-  cache-write counts to the session and the active goal, phase, or milestone.
+- Live `assistant.usage` events add exact input, output, cache-read,
+  cache-write, and AI Credit usage to the session and the active goal, phase, or
+  milestone.
 - `onSessionEnd` finalizes the active phase and records the session outcome.
 
 Automatic phases are intentionally coarse. Record semantic steps when the

@@ -32,6 +32,7 @@ test("shows the empty timeline state", async ({ canvasFactory, page }) => {
         page.getByText("New goals and related tool activity"),
     ).toBeVisible();
     await expect(page.locator("#stepCount")).toHaveText("0");
+    await expect(page.locator("#aiCreditTotal")).toHaveText("AIC unknown");
     await expect(page.locator("#connection")).toHaveText("Live");
     await expect(page.locator("#timelineView")).toBeHidden();
     await expect(page.locator("#graphView")).toBeHidden();
@@ -64,6 +65,17 @@ test("renders step status, details, and dependencies", async ({
         timeline.locator(".meta span", { hasText: "Depends on research" }),
     ).toBeVisible();
     await expect(page.locator("#stepCount")).toHaveText("2");
+    await expect(page.locator("#tokenTotal")).toHaveText("375");
+    await expect(page.locator("#aiCreditTotal")).toHaveText("3.75 AIC");
+    await expect(
+        timeline.locator('[data-step-id="research"] .usage-total'),
+    ).toHaveText("125 tokens · 1.25 AIC");
+    const researchDetails = timeline.locator(
+        '[data-step-id="research"] details',
+    );
+    await researchDetails.locator("summary").click();
+    await expect(researchDetails).toContainText("AI Credit");
+    await expect(researchDetails).toContainText("1.25 AIC");
     await expect(page.getByRole("complementary", { name: "Chat activity" })).toBeVisible();
 });
 

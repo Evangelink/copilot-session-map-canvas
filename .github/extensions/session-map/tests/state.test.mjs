@@ -325,6 +325,7 @@ test("attributes exact token usage to the active step and session", () => {
         outputTokens: 25,
         cacheReadTokens: 40,
         cacheWriteTokens: 10,
+        totalNanoAiu: 1_250_000_000,
         timestamp: "2026-08-04T12:01:00.000Z",
     });
     recordToolActivity(value, {
@@ -336,6 +337,7 @@ test("attributes exact token usage to the active step and session", () => {
         inputTokens: 200,
         outputTokens: 50,
         cacheReadTokens: 75,
+        totalNanoAiu: 2_500_000_000,
         timestamp: "2026-08-04T12:03:00.000Z",
     });
 
@@ -345,10 +347,29 @@ test("attributes exact token usage to the active step and session", () => {
         cacheReadTokens: 115,
         cacheWriteTokens: 10,
         totalTokens: 375,
+        totalNanoAiu: 3_750_000_000,
         modelCalls: 2,
     });
     assert.equal(value.steps[0].usage.totalTokens, 125);
+    assert.equal(value.steps[0].usage.totalNanoAiu, 1_250_000_000);
     assert.equal(value.steps[1].usage.totalTokens, 250);
+    assert.equal(value.steps[1].usage.totalNanoAiu, 2_500_000_000);
+});
+
+test("records AI Credit when token counts are unavailable", () => {
+    const value = state();
+    recordUserGoal(value, "Track AI Credit.", START);
+
+    recordUsage(value, {
+        totalNanoAiu: 500_000_000,
+        timestamp: "2026-08-04T12:01:00.000Z",
+    });
+
+    assert.deepEqual(value.usage, {
+        totalNanoAiu: 500_000_000,
+        modelCalls: 1,
+    });
+    assert.equal(value.steps[0].usage.totalNanoAiu, 500_000_000);
 });
 
 test("does not report a total when an attributed call lacks input or output", () => {
