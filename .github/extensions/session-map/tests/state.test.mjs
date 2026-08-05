@@ -3,11 +3,14 @@ import test from "node:test";
 
 import {
     classifyToolActivity,
+    completeToolChatEvent,
     completeSession,
     createState,
     normalizeState,
+    recordChatEvent,
     recordSemanticStep,
     recordToolActivity,
+    recordTurnStart,
     recordUsage,
     recordUserGoal,
     StateValidationError,
@@ -31,6 +34,90 @@ test("records a user goal once and uses it as the first graph node", () => {
     assert.equal(value.steps.length, 1);
     assert.equal(value.steps[0].kind, "goal");
     assert.deepEqual(value.steps[0].dependencies, []);
+});
+
+test("correlates chat, turn, message, and tool anchors with session steps", () => {
+    const value = state();
+    recordUserGoal(value, "Implement synchronized navigation.", START);
+    recordChatEvent(value, {
+        id: "event-user",
+        type: "user",
+        title: "You",
+        content: "Implement synchronized navigation.",
+        timestamp: START,
+    });
+    recordTurnStart(value, {
+        turnId: "turn-1",
+        timestamp: "2026-08-04T12:00:01.000Z",
+    });
+    recordToolActivity(value, {
+        toolName: "apply_patch",
+        status: "success",
+        timestamp: "2026-08-04T12:01:00.000Z",
+    });
+    recordChatEvent(value, {
+        id: "event-tool-start",
+        type: "tool",
+        stepId: value.lastRecordedStepId,
+        title: "apply_patch",
+        content: "apply_patch started.",
+        toolCallId: "tool-1",
+        turnId: "turn-1",
+        timestamp: "2026-08-04T12:01:00.000Z",
+    });
+    completeToolChatEvent(value, {
+        id: "event-tool-complete",
+        toolCallId: "tool-1",
+        success: true,
+        timestamp: "2026-08-04T12:01:01.000Z",
+    });
+    recordChatEvent(value, {
+        id: "event-assistant",
+        type: "assistant",
+        title: "Copilot",
+        content: "Synchronization is implemented.",
+        messageId: "message-1",
+        turnId: "turn-1",
+        timestamp: "2026-08-04T12:02:00.000Z",
+    });
+
+    assert.equal(value.chatEvents.length, 3);
+    assert.equal(value.chatEvents[1].status, "success");
+    assert.equal(value.activeChatStepId, value.steps[1].id);
+    assert.deepEqual(value.steps[0].chat.eventIds, ["event-user"]);
+    assert.deepEqual(value.steps[1].chat.eventIds, [
+        "event-tool-start",
+        "event-tool-complete",
+        "event-assistant",
+    ]);
+    assert.deepEqual(value.steps[1].chat.turnIds, ["turn-1"]);
+    assert.deepEqual(value.steps[1].chat.messageIds, ["message-1"]);
+});
+
+test("marks a correlated tool phase as failed on completion", () => {
+    const value = state();
+    recordToolActivity(value, {
+        toolName: "powershell",
+        status: "success",
+        timestamp: START,
+    });
+    recordChatEvent(value, {
+        id: "tool-start",
+        type: "tool",
+        title: "powershell",
+        toolCallId: "tool-1",
+        timestamp: START,
+    });
+    completeToolChatEvent(value, {
+        id: "tool-complete",
+        toolCallId: "tool-1",
+        success: false,
+        timestamp: "2026-08-04T12:00:01.000Z",
+    });
+
+    assert.equal(value.steps[0].status, "failure");
+    assert.equal(value.activePhaseId, null);
+    assert.equal(value.chatEvents[0].status, "failure");
 });
 
 test("aggregates related tools and completes a phase on category change", () => {
@@ -337,4 +424,5 @@ test("loads version 1 state without usage fields", () => {
     assert.equal(normalized.usage, undefined);
     assert.equal(normalized.steps[0].usage, undefined);
     assert.equal(normalized.steps[0].title, "Existing goal");
+    assert.deepEqual(normalized.chatEvents, []);
 });

@@ -23,6 +23,11 @@ development-time browser tests.
 - **Accessible step details** for descriptions, metadata, activity, timing, and
   token breakdowns
 - **Live updates** through Server-Sent Events while the canvas is open
+- **Chat correlation** using stable session event, turn, message, and tool-call
+  identifiers
+- **Synchronized in-canvas navigation**: selecting a map step locates its chat
+  activity, while selecting a transcript entry locates the related timeline or
+  graph node
 - **Local, project-scoped persistence** with no runtime package install or
   build step
 
@@ -112,6 +117,17 @@ The equivalent canvas input is:
 Once open, use the **Timeline** and **Graph** controls in the canvas. The
 selected view is persisted in the session document.
 
+The **Chat activity** pane mirrors the user, assistant, and tool activity
+captured while Session Map is active. Select a timeline card or graph node to
+scroll to its first chat anchor. Select a transcript entry to highlight and
+scroll to the corresponding map node. New activity automatically follows the
+active step until you make an explicit selection.
+
+This synchronization is intentionally contained within the canvas. Extension
+iframes do not have a host navigation bridge, so Session Map cannot scroll the
+Copilot application's main chat viewport or observe which main-chat message is
+currently visible.
+
 ### Record a semantic step
 
 The extension contributes the `session_map_record_step` tool. Copilot is
@@ -189,9 +205,11 @@ All canvas and action inputs use JSON Schema validation.
 ## How progress is captured
 
 - `onUserPromptSubmitted` records high-level user goals.
-- `onPostToolUse` and `onPostToolUseFailure` group related tool activity into
-  discovery, implementation, validation, publication, coordination, or general
-  operation phases.
+- Live `user.message`, `assistant.message`, `assistant.turn_start`,
+  `tool.execution_start`, and `tool.execution_complete` events correlate map
+  steps with stable chat anchors.
+- Tool execution events group related activity into discovery, implementation,
+  validation, publication, coordination, or general operation phases.
 - `session_map_record_step` captures semantic outcomes that cannot be inferred
   reliably from raw tool events.
 - Live `assistant.usage` events add exact input, output, cache-read, and
@@ -213,13 +231,15 @@ service. State is written locally under:
 The canvas web server listens only on `127.0.0.1`, uses an operating-system
 assigned ephemeral port, and closes with its canvas instance.
 
-Persisted automatic activity contains high-level summaries, tool names, and
-numeric usage counters. Tool arguments, assistant output, and prompt content are
-not persisted to calculate usage. User goals and descriptions supplied to
+Persisted automatic activity contains high-level summaries, tool names, numeric
+usage counters, and normalized excerpts of user and assistant messages used by
+the Chat activity pane. Tool arguments, tool results, and assistant reasoning
+are not persisted. User goals, chat excerpts, and descriptions supplied to
 semantic steps are persisted as part of the map, so avoid placing secrets or
-other sensitive information in those fields. The state files remain after the
-canvas closes; delete the workspace's `.copilot/session-map/` directory when you
-no longer want to retain them.
+other sensitive information in those fields. Each document retains at most 400
+chat entries. The state files remain after the canvas closes; delete the
+workspace's `.copilot/session-map/` directory when you no longer want to retain
+them.
 
 ## Architecture
 
@@ -358,6 +378,9 @@ new document.
 - An abrupt extension or host process termination may prevent `onSessionEnd`
   from recording completion.
 - Canvas APIs are currently marked experimental in the Copilot SDK.
+- The extension can synchronize its own map and transcript, but cannot navigate
+  or observe the host application's main chat viewport without a future host
+  bridge.
 
 ## Development and validation
 

@@ -53,17 +53,83 @@ test("renders step status, details, and dependencies", async ({
         }),
     ).toBeVisible();
     await expect(
-        timeline.getByText(
-            "Exercising timeline and dependency graph behavior.",
-        ),
+        timeline.locator(".step-description", {
+            hasText: "Exercising timeline and dependency graph behavior.",
+        }),
     ).toBeVisible();
     await expect(
-        timeline.getByText("in progress", { exact: true }),
+        timeline.locator(".badge", { hasText: "in progress" }),
     ).toBeVisible();
     await expect(
-        timeline.getByText("Depends on research", { exact: false }),
+        timeline.locator(".meta", { hasText: "Depends on research" }),
     ).toBeVisible();
     await expect(page.locator("#stepCount")).toHaveText("2");
+    await expect(page.getByRole("complementary", { name: "Chat activity" })).toBeVisible();
+});
+
+test("synchronizes step and transcript selection inside the canvas", async ({
+    canvasFactory,
+    page,
+}) => {
+    const canvas = await canvasFactory(stateWithSteps());
+
+    await page.goto(canvas.url);
+
+    const researchCard = page.locator(
+        '#timelineView [data-step-id="research"]',
+    );
+    const implementationEntry = page.locator(
+        '.chat-entry[data-step-id="implementation"]',
+    );
+
+    await researchCard.click();
+    await expect(researchCard).toHaveClass(/selected/);
+    await expect(
+        page.locator('.chat-entry[data-step-id="research"]'),
+    ).toHaveClass(/selected/);
+    await expect(page.locator("#transcriptContext")).toContainText(
+        "Mapped the canvas architecture",
+    );
+    const locateResearch = researchCard.getByRole("button", {
+        name: "Locate chat activity for Mapped the canvas architecture",
+    });
+    await locateResearch.focus();
+    canvas.recordStep({
+        id: "research",
+        title: "Mapped the canvas architecture",
+        description: "Updated while the locate control retained focus.",
+        status: "success",
+    });
+    await expect(
+        page
+            .locator('#timelineView [data-step-id="research"]')
+            .getByRole("button", {
+                name: "Locate chat activity for Mapped the canvas architecture",
+            }),
+    ).toBeFocused();
+    const researchDetails = page.locator(
+        '#timelineView [data-step-id="research"] details',
+    );
+    const researchSummary = researchDetails.locator("summary");
+    await researchSummary.click();
+    await researchSummary.focus();
+    canvas.recordStep({
+        id: "research",
+        title: "Mapped the canvas architecture",
+        description: "Updated while details retained state and focus.",
+        status: "success",
+    });
+    await expect(researchDetails).toHaveAttribute("open", "");
+    await expect(researchSummary).toBeFocused();
+
+    await implementationEntry.click();
+    await expect(
+        page.locator('#timelineView [data-step-id="implementation"]'),
+    ).toHaveClass(/selected/);
+    await expect(implementationEntry).toHaveClass(/selected/);
+    await expect(page.locator("#transcriptContext")).toContainText(
+        "Implementing browser coverage",
+    );
 });
 
 test("toggles the graph and persists the selected view", async ({
@@ -83,10 +149,18 @@ test("toggles the graph and persists the selected view", async ({
         page.getByRole("region", { name: "Session dependency graph" }),
     ).toBeVisible();
     await expect(
-        page.getByRole("img", {
+        page.getByRole("group", {
             name: "Dependency graph containing 2 session steps",
         }),
     ).toBeVisible();
+    const researchNode = page.locator(
+        '#graphView [data-step-id="research"]',
+    );
+    await researchNode.focus();
+    await researchNode.press("ArrowDown");
+    await expect(researchNode).not.toHaveClass(/selected/);
+    await researchNode.press(" ");
+    await expect(researchNode).toHaveClass(/selected/);
     await expect.poll(() => canvas.state().view).toBe("graph");
 
     await page.reload();

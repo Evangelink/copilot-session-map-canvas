@@ -5,10 +5,13 @@ import {
 } from "@github/copilot-sdk/extension";
 
 import {
+    completeToolChatEvent,
     completeSession,
+    recordChatEvent,
     recordSemanticStep,
     recordSessionStart,
     recordToolActivity,
+    recordTurnStart,
     recordUsage,
     recordUserGoal,
     setPreferredView,
@@ -266,36 +269,6 @@ session = await joinSession({
             }
             return { additionalContext: STEP_INSTRUCTION };
         },
-        onPostToolUse: async (input, invocation) => {
-            if (
-                store?.available &&
-                input.toolName !== "session_map_record_step"
-            ) {
-                await store.mutate(invocation.sessionId, (state) =>
-                    recordToolActivity(state, {
-                        toolName: input.toolName,
-                        toolArgs: input.toolArgs,
-                        status: "success",
-                        timestamp: timestampOf(input),
-                    }),
-                );
-            }
-        },
-        onPostToolUseFailure: async (input, invocation) => {
-            if (
-                store?.available &&
-                input.toolName !== "session_map_record_step"
-            ) {
-                await store.mutate(invocation.sessionId, (state) =>
-                    recordToolActivity(state, {
-                        toolName: input.toolName,
-                        toolArgs: input.toolArgs,
-                        status: "failure",
-                        timestamp: timestampOf(input),
-                    }),
-                );
-            }
-        },
         onSessionEnd: async (input, invocation) => {
             if (store?.available) {
                 await store.mutate(invocation.sessionId, (state) =>
@@ -312,6 +285,104 @@ session = await joinSession({
 store = new StateStore({
     workspacePath: session.workspacePath,
     sessionId: session.sessionId,
+});
+
+function mutateFromEvent(event, mutator) {
+    if (!store.available || event.agentId) {
+        return;
+    }
+    void store
+        .mutate(session.sessionId, mutator)
+        .catch((error) =>
+            session.log(`Session Map could not correlate chat activity: ${error.message}`, {
+                level: "warning",
+            }),
+        );
+}
+
+function isHumanUserMessage(event) {
+    const source = event.data.source;
+    return (
+        !event.data.isAutopilotContinuation &&
+        (!source || source === "user" || source === "human")
+    );
+}
+
+session.on("user.message", (event) => {
+    if (!isHumanUserMessage(event)) {
+        return;
+    }
+    mutateFromEvent(event, (state) =>
+        recordChatEvent(state, {
+            id: event.id,
+            type: "user",
+            title: "You",
+            content: event.data.content,
+            timestamp: event.timestamp,
+        }),
+    );
+});
+
+session.on("assistant.turn_start", (event) => {
+    mutateFromEvent(event, (state) =>
+        recordTurnStart(state, {
+            turnId: event.data.turnId,
+            timestamp: event.timestamp,
+        }),
+    );
+});
+
+session.on("assistant.message", (event) => {
+    if (!event.data.content) {
+        return;
+    }
+    mutateFromEvent(event, (state) =>
+        recordChatEvent(state, {
+            id: event.id,
+            type: "assistant",
+            title: "Copilot",
+            content: event.data.content,
+            messageId: event.data.messageId,
+            turnId: event.data.turnId,
+            timestamp: event.timestamp,
+        }),
+    );
+});
+
+session.on("tool.execution_start", (event) => {
+    if (event.data.toolName === "session_map_record_step") {
+        return;
+    }
+    mutateFromEvent(event, (state) => {
+        recordToolActivity(state, {
+            toolName: event.data.toolName,
+            toolArgs: event.data.arguments,
+            status: "success",
+            timestamp: event.timestamp,
+        });
+        return recordChatEvent(state, {
+            id: event.id,
+            type: "tool",
+            stepId: state.lastRecordedStepId,
+            title: event.data.toolName,
+            content: `${event.data.toolName} started.`,
+            status: "in_progress",
+            toolCallId: event.data.toolCallId,
+            turnId: event.data.turnId,
+            timestamp: event.timestamp,
+        });
+    });
+});
+
+session.on("tool.execution_complete", (event) => {
+    mutateFromEvent(event, (state) =>
+        completeToolChatEvent(state, {
+            id: event.id,
+            toolCallId: event.data.toolCallId,
+            success: event.data.success,
+            timestamp: event.timestamp,
+        }),
+    );
 });
 
 session.on("assistant.usage", (event) => {

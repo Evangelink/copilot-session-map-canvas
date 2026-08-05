@@ -93,6 +93,13 @@ export function renderHtml({ documentId }) {
       content: "";
     }
     .connection.live::before { background: #1a7f37; }
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 38%);
+      gap: 18px;
+      align-items: start;
+    }
+    .map-pane { min-width: 0; }
     .empty, .error {
       border: 1px dashed var(--border-color-default, #d1d9e0);
       border-radius: 10px;
@@ -141,6 +148,21 @@ export function renderHtml({ documentId }) {
       border: 1px solid var(--border-color-default, #d1d9e0);
       border-radius: 10px;
       padding: 12px 14px;
+      cursor: pointer;
+    }
+    .step-card:hover {
+      border-color: color-mix(in srgb, var(--text-color-default, #1f2328) 35%, var(--border-color-default, #d1d9e0));
+    }
+    .step-card.selected, .graph-step.selected .graph-node {
+      outline: 2px solid var(--color-focus-outline, #0969da);
+      outline-offset: 2px;
+    }
+    .step-card.active, .graph-step.active .graph-node {
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--true-color-blue, #0969da) 18%, transparent);
+    }
+    .step-card:focus-visible, .graph-step:focus-visible .graph-node {
+      outline: 2px solid var(--color-focus-outline, #0969da);
+      outline-offset: 2px;
     }
     .step-top {
       display: flex;
@@ -164,6 +186,15 @@ export function renderHtml({ documentId }) {
     .badge.success { color: #1a7f37; }
     .badge.in_progress { color: var(--true-color-blue, #0969da); border-color: var(--true-color-blue-muted, #54aeff); }
     .token-total { white-space: nowrap; color: var(--text-color-muted, #59636e); font-size: 12px; }
+    .locate-chat {
+      border: 0;
+      border-radius: 6px;
+      padding: 2px 6px;
+      color: var(--true-color-blue, #0969da);
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+    }
     details { margin-top: 10px; border-top: 1px solid var(--border-color-default, #d1d9e0); padding-top: 8px; }
     details summary { width: fit-content; cursor: pointer; color: var(--text-color-muted, #59636e); font-weight: var(--font-weight-semibold, 600); }
     details summary:focus-visible { outline: 2px solid var(--color-focus-outline, #0969da); outline-offset: 2px; }
@@ -189,6 +220,51 @@ export function renderHtml({ documentId }) {
     .graph-node.in_progress { stroke: var(--true-color-blue, #0969da); }
     .graph-title { fill: var(--text-color-default, #1f2328); font-weight: 600; font-size: 13px; }
     .graph-meta { fill: var(--text-color-muted, #59636e); font-size: 11px; }
+    .graph-step { cursor: pointer; }
+    .transcript {
+      position: sticky;
+      top: 16px;
+      overflow: hidden;
+      border: 1px solid var(--border-color-default, #d1d9e0);
+      border-radius: 10px;
+      background: var(--background-color-default, #fff);
+    }
+    .transcript-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-color-default, #d1d9e0);
+    }
+    .transcript-title { margin: 0; font-size: 15px; }
+    .transcript-context { margin: 3px 0 0; font-size: 12px; }
+    .transcript-list {
+      display: grid;
+      gap: 1px;
+      max-height: calc(100vh - 230px);
+      overflow: auto;
+      background: var(--border-color-default, #d1d9e0);
+    }
+    .chat-entry {
+      width: 100%;
+      border: 0;
+      padding: 10px 12px;
+      color: var(--text-color-default, #1f2328);
+      background: var(--background-color-default, #fff);
+      text-align: left;
+      cursor: pointer;
+    }
+    .chat-entry:hover { background: color-mix(in srgb, var(--true-color-blue, #0969da) 7%, var(--background-color-default, #fff)); }
+    .chat-entry.selected { background: color-mix(in srgb, var(--true-color-blue, #0969da) 13%, var(--background-color-default, #fff)); }
+    .chat-entry.active { border-left: 3px solid var(--true-color-blue, #0969da); padding-left: 9px; }
+    .chat-entry-top { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+    .chat-entry-kind { color: var(--text-color-muted, #59636e); text-transform: capitalize; }
+    .chat-entry-content {
+      display: -webkit-box;
+      margin-top: 4px;
+      overflow: hidden;
+      color: var(--text-color-muted, #59636e);
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 4;
+    }
+    .transcript-empty { margin: 0; padding: 18px 14px; }
     .sr-only {
       position: absolute;
       width: 1px;
@@ -205,6 +281,9 @@ export function renderHtml({ documentId }) {
       .shell { padding: 14px; }
       .header { flex-direction: column; }
       .summary { grid-template-columns: 1fr; }
+      .content-grid { grid-template-columns: 1fr; }
+      .transcript { position: static; }
+      .transcript-list { max-height: 420px; }
       .controls { width: 100%; justify-content: space-between; }
       .step-top { flex-direction: column; }
       .step-heading-meta { justify-content: flex-start; }
@@ -235,12 +314,23 @@ export function renderHtml({ documentId }) {
       <div class="summary-card"><span class="summary-label">Updates</span><span class="summary-value connection" id="connection" role="status">Connecting</span></div>
     </section>
     <div id="error" class="error" role="alert" hidden></div>
-    <section id="empty" class="empty">
-      <strong>No session milestones yet</strong>
-      <p class="muted">New goals and related tool activity will appear here automatically.</p>
-    </section>
-    <section id="timelineView" aria-label="Session timeline"></section>
-    <section id="graphView" aria-label="Session dependency graph" hidden></section>
+    <div class="content-grid">
+      <div class="map-pane">
+        <section id="empty" class="empty">
+          <strong>No session milestones yet</strong>
+          <p class="muted">New goals and related tool activity will appear here automatically.</p>
+        </section>
+        <section id="timelineView" aria-label="Session timeline"></section>
+        <section id="graphView" aria-label="Session dependency graph" hidden></section>
+      </div>
+      <aside class="transcript" aria-label="Chat activity">
+        <header class="transcript-header">
+          <h2 class="transcript-title">Chat activity</h2>
+          <p class="transcript-context muted" id="transcriptContext">Select a step to locate its chat activity.</p>
+        </header>
+        <div class="transcript-list" id="transcriptList"></div>
+      </aside>
+    </div>
   </main>
   <script>
     const documentId = ${JSON.stringify(documentId)};
@@ -256,8 +346,12 @@ export function renderHtml({ documentId }) {
       tokenTotal: document.getElementById("tokenTotal"),
       timeline: document.getElementById("timelineView"),
       timelineButton: document.getElementById("timelineButton"),
+      transcriptContext: document.getElementById("transcriptContext"),
+      transcriptList: document.getElementById("transcriptList"),
     };
     let currentState;
+    let selectedStepId;
+    let selectionPinned = false;
 
     function text(value) {
       return document.createTextNode(value ?? "");
@@ -325,6 +419,7 @@ export function renderHtml({ documentId }) {
         dot.setAttribute("aria-hidden", "true");
         const card = document.createElement("article");
         card.className = "step-card";
+        card.dataset.stepId = step.id;
         const top = document.createElement("div");
         top.className = "step-top";
         const title = document.createElement("h2");
@@ -338,7 +433,12 @@ export function renderHtml({ documentId }) {
         const tokens = document.createElement("span");
         tokens.className = "token-total";
         tokens.append(text(tokenTotal(step.usage?.totalTokens)));
-        headingMeta.append(tokens, badge);
+        const locateChat = document.createElement("button");
+        locateChat.type = "button";
+        locateChat.className = "locate-chat";
+        locateChat.append(text("Locate chat"));
+        locateChat.setAttribute("aria-label", "Locate chat activity for " + step.title);
+        headingMeta.append(locateChat, tokens, badge);
         top.append(title, headingMeta);
         card.append(top);
         if (step.description) {
@@ -382,6 +482,7 @@ export function renderHtml({ documentId }) {
         appendDetail(detailsGrid, "Cache-read tokens", formatTokens(step.usage?.cacheReadTokens));
         appendDetail(detailsGrid, "Cache-write tokens", formatTokens(step.usage?.cacheWriteTokens));
         appendDetail(detailsGrid, "Model calls", formatTokens(step.usage?.modelCalls));
+        appendDetail(detailsGrid, "Chat anchors", String(step.chat?.eventIds?.length ?? 0));
         details.append(detailsSummary, detailsGrid);
         card.append(details);
         item.append(dot, card);
@@ -413,7 +514,7 @@ export function renderHtml({ documentId }) {
       const height = Math.max(360, 74 + steps.length * 118);
       const svg = svgElement("svg", {
         viewBox: "0 0 800 " + height,
-        role: "img",
+        role: "group",
         "aria-label": "Dependency graph containing " + steps.length + " session steps",
       });
       for (const step of steps) {
@@ -435,6 +536,11 @@ export function renderHtml({ documentId }) {
       for (const step of steps) {
         const position = positions.get(step.id);
         const group = svgElement("g");
+        group.setAttribute("class", "graph-step");
+        group.setAttribute("data-step-id", step.id);
+        group.setAttribute("tabindex", "0");
+        group.setAttribute("role", "button");
+        group.setAttribute("aria-label", "Locate chat activity for " + step.title);
         const rect = svgElement("rect", {
           class: "graph-node " + step.status,
           x: position.x,
@@ -469,7 +575,111 @@ export function renderHtml({ documentId }) {
       return wrapper;
     }
 
+    function createTranscript(events) {
+      const fragment = document.createDocumentFragment();
+      if (!events.length) {
+        const empty = document.createElement("p");
+        empty.className = "transcript-empty muted";
+        empty.append(text("Chat anchors will appear as new session activity is recorded."));
+        fragment.append(empty);
+        return fragment;
+      }
+      for (const event of events) {
+        const entry = document.createElement("button");
+        entry.type = "button";
+        entry.className = "chat-entry";
+        entry.dataset.eventId = event.id;
+        if (event.stepId) entry.dataset.stepId = event.stepId;
+        const top = document.createElement("span");
+        top.className = "chat-entry-top";
+        const title = document.createElement("strong");
+        title.append(text(event.title || event.type));
+        const kind = document.createElement("span");
+        kind.className = "chat-entry-kind";
+        kind.append(text(event.status && event.type === "tool" ? formatStatus(event.status) : event.type));
+        top.append(title, kind);
+        const content = document.createElement("span");
+        content.className = "chat-entry-content";
+        content.append(text(event.content || formatTime(event.timestamp)));
+        entry.append(top, content);
+        entry.disabled = !event.stepId;
+        fragment.append(entry);
+      }
+      return fragment;
+    }
+
+    function elementsForStep(stepId) {
+      if (!stepId) return [];
+      return [...document.querySelectorAll('[data-step-id="' + CSS.escape(stepId) + '"]')];
+    }
+
+    function applySelection({ scrollMap = false, scrollTranscript = false } = {}) {
+      document.querySelectorAll("[data-step-id].selected").forEach((element) => element.classList.remove("selected"));
+      document.querySelectorAll("[data-step-id].active").forEach((element) => element.classList.remove("active"));
+      for (const element of elementsForStep(currentState?.activeChatStepId)) {
+        element.classList.add("active");
+      }
+      for (const element of elementsForStep(selectedStepId)) {
+        element.classList.add("selected");
+      }
+
+      const step = currentState?.steps?.find((candidate) => candidate.id === selectedStepId);
+      const relatedCount = currentState?.chatEvents?.filter((event) => event.stepId === selectedStepId).length ?? 0;
+      elements.transcriptContext.textContent = step
+        ? step.title + " · " + relatedCount + " chat " + (relatedCount === 1 ? "anchor" : "anchors")
+        : "Select a step to locate its chat activity.";
+
+      if (scrollMap && selectedStepId) {
+        const selector = (currentState.view === "graph" ? "#graphView " : "#timelineView ") +
+          '[data-step-id="' + CSS.escape(selectedStepId) + '"]';
+        document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+      if (scrollTranscript && selectedStepId) {
+        elements.transcriptList
+          .querySelector('.chat-entry[data-step-id="' + CSS.escape(selectedStepId) + '"]')
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+
+    function selectStep(stepId, options = {}) {
+      if (!currentState?.steps?.some((step) => step.id === stepId)) return;
+      selectedStepId = stepId;
+      selectionPinned = options.pinned ?? true;
+      applySelection(options);
+    }
+
+    function captureDynamicFocus() {
+      const focused = document.activeElement;
+      if (focused?.classList.contains("chat-entry")) {
+        return { kind: "chat", eventId: focused.dataset.eventId };
+      }
+      if (focused?.classList.contains("locate-chat")) {
+        return { kind: "locate", stepId: focused.closest("[data-step-id]")?.dataset.stepId };
+      }
+      if (focused?.tagName === "SUMMARY") {
+        return { kind: "summary", stepId: focused.closest("[data-step-id]")?.dataset.stepId };
+      }
+      const graphStep = focused?.closest?.(".graph-step[data-step-id]");
+      return graphStep ? { kind: "graph", stepId: graphStep.dataset.stepId } : null;
+    }
+
+    function restoreDynamicFocus(focus) {
+      if (!focus) return;
+      const selector = focus.kind === "chat"
+        ? '.chat-entry[data-event-id="' + CSS.escape(focus.eventId) + '"]'
+        : focus.kind === "locate"
+          ? '#timelineView [data-step-id="' + CSS.escape(focus.stepId) + '"] .locate-chat'
+          : focus.kind === "summary"
+            ? '#timelineView [data-step-id="' + CSS.escape(focus.stepId) + '"] details summary'
+          : '#graphView [data-step-id="' + CSS.escape(focus.stepId) + '"]';
+      document.querySelector(selector)?.focus({ preventScroll: true });
+    }
+
     function render(state) {
+      const focus = captureDynamicFocus();
+      const expandedStepIds = [
+        ...elements.timeline.querySelectorAll("[data-step-id] details[open]"),
+      ].map((details) => details.closest("[data-step-id]").dataset.stepId);
       currentState = state;
       showError("");
       const steps = state.steps ?? [];
@@ -483,11 +693,31 @@ export function renderHtml({ documentId }) {
       elements.empty.hidden = steps.length > 0;
       elements.timeline.replaceChildren(...(steps.length ? [createTimeline(steps)] : []));
       elements.graph.replaceChildren(...(steps.length ? [createGraph(steps)] : []));
+      elements.transcriptList.replaceChildren(createTranscript(state.chatEvents ?? []));
+      for (const stepId of expandedStepIds) {
+        elements.timeline
+          .querySelector(
+            '[data-step-id="' + CSS.escape(stepId) + '"] details',
+          )
+          ?.setAttribute("open", "");
+      }
       const graphActive = state.view === "graph";
       elements.timeline.hidden = graphActive || steps.length === 0;
       elements.graph.hidden = !graphActive || steps.length === 0;
       elements.timelineButton.setAttribute("aria-pressed", String(!graphActive));
       elements.graphButton.setAttribute("aria-pressed", String(graphActive));
+      if (!steps.some((step) => step.id === selectedStepId)) {
+        selectedStepId = undefined;
+        selectionPinned = false;
+      }
+      if (!selectionPinned && state.activeChatStepId) {
+        selectedStepId = state.activeChatStepId;
+      }
+      applySelection({
+        scrollMap: !selectionPinned && Boolean(selectedStepId),
+        scrollTranscript: !selectionPinned && Boolean(selectedStepId),
+      });
+      restoreDynamicFocus(focus);
       document.title = "Session Map · " + documentId;
     }
 
@@ -512,6 +742,26 @@ export function renderHtml({ documentId }) {
 
     elements.timelineButton.addEventListener("click", () => setView("timeline"));
     elements.graphButton.addEventListener("click", () => setView("graph"));
+    function mapSelection(event) {
+      if (
+        event.type === "keydown" &&
+        event.key !== "Enter" &&
+        event.key !== " "
+      ) {
+        return;
+      }
+      const target = event.target.closest("[data-step-id]");
+      if (!target || target.classList.contains("chat-entry")) return;
+      if (event.type === "keydown") event.preventDefault();
+      selectStep(target.dataset.stepId, { scrollTranscript: true, pinned: true });
+    }
+    elements.timeline.addEventListener("click", mapSelection);
+    elements.graph.addEventListener("click", mapSelection);
+    elements.graph.addEventListener("keydown", mapSelection);
+    elements.transcriptList.addEventListener("click", (event) => {
+      const entry = event.target.closest(".chat-entry[data-step-id]");
+      if (entry) selectStep(entry.dataset.stepId, { scrollMap: true, pinned: true });
+    });
     elements.refresh.addEventListener("click", async () => {
       try {
         render(await post("/api/refresh"));
