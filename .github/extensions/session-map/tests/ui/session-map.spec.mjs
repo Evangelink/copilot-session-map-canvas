@@ -58,10 +58,10 @@ test("renders step status, details, and dependencies", async ({
         }),
     ).toBeVisible();
     await expect(
-        timeline.locator(".badge", { hasText: "in progress" }),
+        timeline.locator(".badge.in_progress"),
     ).toBeVisible();
     await expect(
-        timeline.locator(".meta", { hasText: "Depends on research" }),
+        timeline.locator(".meta span", { hasText: "Depends on research" }),
     ).toBeVisible();
     await expect(page.locator("#stepCount")).toHaveText("2");
     await expect(page.getByRole("complementary", { name: "Chat activity" })).toBeVisible();

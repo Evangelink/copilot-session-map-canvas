@@ -1,5 +1,8 @@
 # Session Map
 
+[![CI](https://github.com/Evangelink/copilot-session-map-canvas/actions/workflows/session-map-ci.yml/badge.svg)](https://github.com/Evangelink/copilot-session-map-canvas/actions/workflows/session-map-ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Session Map is a project-scoped GitHub Copilot canvas extension that turns the
 current Copilot session into a concise visual history. It shows user goals,
 aggregated work phases, explicit milestones, failures, and session completion
@@ -33,9 +36,6 @@ development-time browser tests.
   build step
 
 ## Demo
-
-> Screenshot placeholder: open the **Session Map** canvas during an active
-> Copilot session and capture both the Timeline and Graph views.
 
 The **Timeline** view is best for reading progress in order: goals, phases,
 milestones, failures, and completion appear with their status, timestamps, token
@@ -412,7 +412,7 @@ Get-ChildItem .github\extensions\session-map -Filter *.mjs -Recurse |
 Run the browser tests against a deterministic local harness:
 
 ```powershell
-npm install
+npm ci
 npx playwright install chromium
 npm run test:ui
 ```
@@ -434,3 +434,14 @@ For an interactive validation:
    without reopening the canvas.
 6. Close the canvas and confirm that its loopback server stops while the local
    state file remains.
+
+## Community
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development
+and pull request guidance. By participating, you agree to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md). Please report vulnerabilities according
+to the [security policy](SECURITY.md).
+
+## License
+
+Session Map is available under the [MIT License](LICENSE).

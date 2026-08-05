@@ -1,11 +1,21 @@
 {
   "name": "copilot-session-map-canvas",
+  "description": "GitHub Copilot canvas extension for visualizing session milestones as a timeline or dependency graph.",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Evangelink/copilot-session-map-canvas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Evangelink/copilot-session-map-canvas/issues"
+  },
+  "homepage": "https://github.com/Evangelink/copilot-session-map-canvas#readme",
   "type": "module",
   "scripts": {
     "test:ui": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.0"
+    "@playwright/test": "1.62.1"
   }
 }
