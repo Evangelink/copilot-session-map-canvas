@@ -22,8 +22,8 @@ import {
     setPreferredView,
 } from "./state.mjs";
 import {
-    DOCUMENT_ID_SCHEMA,
     EMPTY_INPUT_SCHEMA,
+    MAP_CANVAS_INPUT_SCHEMA,
     RECORD_STEP_SCHEMA,
     SET_VIEW_SCHEMA,
 } from "./schemas.mjs";
@@ -111,18 +111,7 @@ const canvas = createCanvas({
     displayName: "Session Map",
     description:
         "Shows meaningful goals, work phases, outcomes, and dependencies for the current Copilot session.",
-    inputSchema: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-            documentId: DOCUMENT_ID_SCHEMA,
-            view: {
-                type: "string",
-                enum: ["timeline", "graph"],
-                description: "Initial view to show.",
-            },
-        },
-    },
+    inputSchema: MAP_CANVAS_INPUT_SCHEMA,
     actions: [
         {
             name: "get_state",
@@ -162,7 +151,7 @@ const canvas = createCanvas({
     open: async (ctx) => {
         try {
             const activeStore = requireStore();
-            const documentId = ctx.input?.documentId ?? session.sessionId;
+            const documentId = session.sessionId;
             if (ctx.input?.view) {
                 await updateView(documentId, { view: ctx.input.view });
             } else {

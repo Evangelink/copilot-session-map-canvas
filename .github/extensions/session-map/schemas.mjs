@@ -1,9 +1,13 @@
-export const DOCUMENT_ID_SCHEMA = {
-    type: "string",
-    minLength: 1,
-    maxLength: 120,
-    pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
-    description: "Stable session or document id used for durable state.",
+export const MAP_CANVAS_INPUT_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+        view: {
+            type: "string",
+            enum: ["timeline", "graph"],
+            description: "Initial view to show.",
+        },
+    },
 };
 
 export const EMPTY_INPUT_SCHEMA = {
