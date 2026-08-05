@@ -22,6 +22,7 @@ development-time browser tests.
   attributed to the active goal, phase, or milestone
 - **Accessible step details** for descriptions, metadata, activity, timing, and
   token breakdowns
+- **`/map` slash command** to open or focus the canvas immediately
 - **Live updates** through Server-Sent Events while the canvas is open
 - **Chat correlation** using stable session event, turn, message, and tool-call
   identifiers
@@ -60,8 +61,8 @@ A useful demo flow is:
 2. Start a new Copilot session in that workspace.
 3. Reload extensions if the session was already running when the repository
    was cloned or updated.
-4. Confirm that the `session-map` canvas and `session_map_record_step` tool are
-   available.
+4. Confirm that the `/map` command, `session-map` canvas, and
+   `session_map_record_step` tool are available.
 
 The project extension lives at:
 
@@ -84,6 +85,7 @@ your-project/
     └── extensions/
         └── session-map/
             ├── extension.mjs
+            ├── commands.mjs
             ├── renderer.mjs
             ├── schemas.mjs
             ├── server.mjs
@@ -98,7 +100,14 @@ session.
 
 ### Open the canvas
 
-Ask Copilot:
+Run:
+
+```text
+/map
+```
+
+The command opens Session Map directly and focuses an existing Session Map
+instance, including one opened through Copilot. You can also ask Copilot:
 
 > Open the Session Map canvas.
 
