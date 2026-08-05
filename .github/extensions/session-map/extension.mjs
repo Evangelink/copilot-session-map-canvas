@@ -5,6 +5,11 @@ import {
 } from "@github/copilot-sdk/extension";
 
 import {
+    createMapCommand,
+    MAP_CANVAS_ID,
+    MAP_EXTENSION_INFO,
+} from "./commands.mjs";
+import {
     completeSession,
     recordSemanticStep,
     recordSessionStart,
@@ -99,7 +104,7 @@ async function forCanvasAction(ctx, operation) {
 }
 
 const canvas = createCanvas({
-    id: "session-map",
+    id: MAP_CANVAS_ID,
     displayName: "Session Map",
     description:
         "Shows meaningful goals, work phases, outcomes, and dependencies for the current Copilot session.",
@@ -204,6 +209,13 @@ const canvas = createCanvas({
 });
 
 session = await joinSession({
+    extensionInfo: MAP_EXTENSION_INFO,
+    commands: [
+        createMapCommand({
+            listOpenCanvases: () => session.rpc.canvas.listOpen(),
+            openCanvas: (input) => session.rpc.canvas.open(input),
+        }),
+    ],
     canvases: [canvas],
     tools: [
         {
