@@ -168,6 +168,10 @@ function tokenCount(value) {
     return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
+function usageAmount(value) {
+    return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
 export function normalizeUsage(raw) {
     if (!raw || typeof raw !== "object") {
         return undefined;
@@ -179,6 +183,10 @@ export function normalizeUsage(raw) {
             usage[field] = value;
         }
     }
+    const totalNanoAiu = usageAmount(raw.totalNanoAiu);
+    if (totalNanoAiu !== undefined) {
+        usage.totalNanoAiu = totalNanoAiu;
+    }
     return Object.keys(usage).length ? usage : undefined;
 }
 
@@ -186,7 +194,11 @@ function accumulateUsage(current, input) {
     const values = Object.fromEntries(
         TOKEN_FIELDS.map((field) => [field, tokenCount(input[field])]),
     );
-    if (TOKEN_FIELDS.every((field) => values[field] === undefined)) {
+    const totalNanoAiu = usageAmount(input.totalNanoAiu);
+    if (
+        TOKEN_FIELDS.every((field) => values[field] === undefined) &&
+        totalNanoAiu === undefined
+    ) {
         return undefined;
     }
 
@@ -200,6 +212,9 @@ function accumulateUsage(current, input) {
         if (values[field] !== undefined) {
             next[field] = (previous[field] ?? 0) + values[field];
         }
+    }
+    if (totalNanoAiu !== undefined) {
+        next.totalNanoAiu = (previous.totalNanoAiu ?? 0) + totalNanoAiu;
     }
 
     const hasCompleteTotal =

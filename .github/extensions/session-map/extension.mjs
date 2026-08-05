@@ -408,11 +408,12 @@ session.on("assistant.usage", (event) => {
                 outputTokens: event.data.outputTokens,
                 cacheReadTokens: event.data.cacheReadTokens,
                 cacheWriteTokens: event.data.cacheWriteTokens,
+                totalNanoAiu: event.data.copilotUsage?.totalNanoAiu,
                 timestamp: event.timestamp,
             }),
         )
         .catch((error) =>
-            session.log(`Session Map could not record token usage: ${error.message}`, {
+            session.log(`Session Map could not record usage: ${error.message}`, {
                 level: "warning",
             }),
         );
