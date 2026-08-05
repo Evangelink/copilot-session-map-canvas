@@ -272,9 +272,11 @@ Copilot hooks/tool/actions
 contains pure aggregation logic, `store.mjs` serializes mutations and persists
 JSON, and `server.mjs` owns loopback HTTP/SSE lifecycle.
 
-Persistent state is keyed by a stable `documentId`, whose default is the
-Copilot `sessionId`; it is never keyed by the transient canvas `instanceId`.
-Files are stored under `session.workspacePath/.copilot/session-map/`. If
+Persistent state is keyed by the Copilot `sessionId`, which is also stored as
+the document's stable `documentId`; it is never keyed by the app's project
+session id or the transient canvas `instanceId`. Canvas input can select the
+initial view but cannot redirect the map to another document. Files are stored
+under `session.workspacePath/.copilot/session-map/`. If
 `session.workspacePath` is unavailable, canvas open requests and actions return
 an explicit `workspace_unavailable` error, while hooks provide explanatory
 context instead of silently falling back to memory.
