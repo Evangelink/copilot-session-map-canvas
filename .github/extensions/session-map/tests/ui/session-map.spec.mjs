@@ -53,15 +53,15 @@ test("renders step status, details, and dependencies", async ({
         }),
     ).toBeVisible();
     await expect(
-        timeline.getByText(
-            "Exercising timeline and dependency graph behavior.",
-        ),
+        timeline.locator(".step-description", {
+            hasText: "Exercising timeline and dependency graph behavior.",
+        }),
     ).toBeVisible();
     await expect(
-        timeline.getByText("in progress", { exact: true }),
+        timeline.locator(".badge.in_progress"),
     ).toBeVisible();
     await expect(
-        timeline.getByText("Depends on research", { exact: false }),
+        timeline.locator(".meta span", { hasText: "Depends on research" }),
     ).toBeVisible();
     await expect(page.locator("#stepCount")).toHaveText("2");
 });
