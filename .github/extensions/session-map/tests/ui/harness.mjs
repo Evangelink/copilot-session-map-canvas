@@ -1,5 +1,6 @@
 import {
     createState,
+    recordChatEvent,
     recordSemanticStep,
     setPreferredView,
 } from "../../state.mjs";
@@ -32,6 +33,16 @@ export function stateWithSteps() {
         },
         { timestamp: "2026-08-04T12:01:00.000Z" },
     );
+    recordChatEvent(state, {
+        id: "event-research",
+        type: "assistant",
+        stepId: "research",
+        title: "Copilot",
+        content: "I mapped the renderer and server boundaries.",
+        messageId: "message-research",
+        turnId: "turn-1",
+        timestamp: "2026-08-04T12:01:30.000Z",
+    });
     recordSemanticStep(
         state,
         {
@@ -43,6 +54,17 @@ export function stateWithSteps() {
         },
         { timestamp: "2026-08-04T12:02:00.000Z" },
     );
+    recordChatEvent(state, {
+        id: "event-implementation",
+        type: "tool",
+        stepId: "implementation",
+        title: "apply_patch",
+        content: "apply_patch started.",
+        status: "in_progress",
+        toolCallId: "tool-implementation",
+        turnId: "turn-2",
+        timestamp: "2026-08-04T12:02:30.000Z",
+    });
     return state;
 }
 

@@ -11,6 +11,8 @@ const TOKEN_FIELDS = [
     "cacheReadTokens",
     "cacheWriteTokens",
 ];
+const CHAT_EVENT_LIMIT = 400;
+const CHAT_EVENT_TYPES = new Set(["user", "assistant", "tool"]);
 
 const PHASES = {
     discovery: {
@@ -46,6 +48,10 @@ function cleanText(value, maximum) {
         return "";
     }
     return String(value).replace(/\s+/g, " ").trim().slice(0, maximum);
+}
+
+function cleanIdentifier(value, maximum = 160) {
+    return cleanText(value, maximum);
 }
 
 function isoTimestamp(value = new Date().toISOString()) {
@@ -120,6 +126,44 @@ function updateMetadata(state, timestamp) {
     return state;
 }
 
+function activeStepId(state) {
+    return state.activePhaseId ?? state.lastRecordedStepId;
+}
+
+function ensureChatAnchors(step) {
+    step.chat ??= {
+        eventIds: [],
+        turnIds: [],
+        messageIds: [],
+    };
+    return step.chat;
+}
+
+function appendUnique(values, value, limit = 100) {
+    if (value && !values.includes(value) && values.length < limit) {
+        values.push(value);
+    }
+}
+
+function associateChatEvent(state, stepId, event) {
+    const step = state.steps.find((candidate) => candidate.id === stepId);
+    if (!step) {
+        return;
+    }
+    const anchors = ensureChatAnchors(step);
+    appendUnique(anchors.eventIds, event.id);
+    appendUnique(anchors.turnIds, event.turnId);
+    appendUnique(anchors.messageIds, event.messageId);
+}
+
+function removeChatEventReference(state, event) {
+    const step = state.steps.find((candidate) => candidate.id === event.stepId);
+    if (!step?.chat) {
+        return;
+    }
+    step.chat.eventIds = step.chat.eventIds.filter((id) => id !== event.id);
+}
+
 function tokenCount(value) {
     return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
@@ -192,6 +236,9 @@ export function createState({
         activePhaseId: null,
         lastRecordedStepId: null,
         completion: null,
+        activeChatStepId: null,
+        activeTurnId: null,
+        chatEvents: [],
         steps: [],
     };
 }
@@ -224,6 +271,23 @@ export function normalizeState(raw, defaults) {
                         ? step.activityCount
                         : 0,
             };
+            if (step.chat && typeof step.chat === "object") {
+                normalized.chat = {
+                    eventIds: Array.isArray(step.chat.eventIds)
+                        ? step.chat.eventIds.filter((id) => typeof id === "string")
+                        : [],
+                    turnIds: Array.isArray(step.chat.turnIds)
+                        ? step.chat.turnIds.filter((id) => typeof id === "string")
+                        : [],
+                    messageIds: Array.isArray(step.chat.messageIds)
+                        ? step.chat.messageIds.filter(
+                              (id) => typeof id === "string",
+                          )
+                        : [],
+                };
+            } else {
+                delete normalized.chat;
+            }
             const usage = normalizeUsage(step.usage);
             if (usage) {
                 normalized.usage = usage;
@@ -243,6 +307,23 @@ export function normalizeState(raw, defaults) {
                 ? raw.nextSequence
                 : raw.steps.length + 1,
         steps,
+        activeChatStepId:
+            typeof raw.activeChatStepId === "string"
+                ? raw.activeChatStepId
+                : null,
+        activeTurnId:
+            typeof raw.activeTurnId === "string" ? raw.activeTurnId : null,
+        chatEvents: Array.isArray(raw.chatEvents)
+            ? raw.chatEvents
+                  .filter(
+                      (event) =>
+                          event &&
+                          typeof event.id === "string" &&
+                          CHAT_EVENT_TYPES.has(event.type) &&
+                          typeof event.timestamp === "string",
+                  )
+                  .slice(-CHAT_EVENT_LIMIT)
+            : [],
     };
     const usage = normalizeUsage(raw.usage);
     if (usage) {
@@ -398,6 +479,103 @@ export function recordUsage(state, input) {
     if (step) {
         step.usage = accumulateUsage(step.usage, input);
         step.updatedAt = timestamp;
+    }
+    return updateMetadata(state, timestamp);
+}
+
+export function recordTurnStart(state, input) {
+    const timestamp = isoTimestamp(input.timestamp);
+    state.activeTurnId = cleanIdentifier(input.turnId) || null;
+    state.activeChatStepId = activeStepId(state) ?? null;
+    return updateMetadata(state, timestamp);
+}
+
+export function recordChatEvent(state, input) {
+    const timestamp = isoTimestamp(input.timestamp);
+    const id = cleanIdentifier(input.id);
+    const type = cleanIdentifier(input.type, 20);
+    if (!id) {
+        throw new StateValidationError("A chat event id is required.");
+    }
+    if (!CHAT_EVENT_TYPES.has(type)) {
+        throw new StateValidationError(`Unsupported chat event type "${type}".`);
+    }
+
+    const requestedStepId = cleanIdentifier(input.stepId, 80);
+    const stepId =
+        (requestedStepId &&
+        state.steps.some((step) => step.id === requestedStepId)
+            ? requestedStepId
+            : activeStepId(state)) ?? null;
+    const event = {
+        id,
+        type,
+        stepId,
+        timestamp,
+        turnId:
+            cleanIdentifier(input.turnId) || state.activeTurnId || undefined,
+        messageId: cleanIdentifier(input.messageId) || undefined,
+        toolCallId: cleanIdentifier(input.toolCallId) || undefined,
+        title: cleanText(input.title, 160),
+        content: cleanText(input.content, 2000),
+        status: cleanIdentifier(input.status, 40) || undefined,
+    };
+
+    state.chatEvents.push(event);
+    if (state.chatEvents.length > CHAT_EVENT_LIMIT) {
+        const removed = state.chatEvents.splice(
+            0,
+            state.chatEvents.length - CHAT_EVENT_LIMIT,
+        );
+        for (const oldEvent of removed) {
+            removeChatEventReference(state, oldEvent);
+        }
+    }
+    if (stepId) {
+        associateChatEvent(state, stepId, event);
+        state.activeChatStepId = stepId;
+    }
+    if (event.turnId) {
+        state.activeTurnId = event.turnId;
+    }
+    return updateMetadata(state, timestamp);
+}
+
+export function completeToolChatEvent(state, input) {
+    const timestamp = isoTimestamp(input.timestamp);
+    const toolCallId = cleanIdentifier(input.toolCallId);
+    const event = [...state.chatEvents]
+        .reverse()
+        .find(
+            (candidate) =>
+                candidate.type === "tool" &&
+                candidate.toolCallId === toolCallId,
+        );
+    if (!event) {
+        return state;
+    }
+
+    event.status = input.success ? "success" : "failure";
+    event.content = input.success
+        ? `${event.title} completed.`
+        : `${event.title} failed.`;
+    event.completedAt = timestamp;
+
+    const step = state.steps.find((candidate) => candidate.id === event.stepId);
+    if (step) {
+        appendUnique(
+            ensureChatAnchors(step).eventIds,
+            cleanIdentifier(input.id),
+        );
+        step.updatedAt = timestamp;
+        state.activeChatStepId = step.id;
+        if (!input.success) {
+            step.status = "failure";
+            step.description = `${event.title} failed during this phase.`;
+            if (state.activePhaseId === step.id) {
+                state.activePhaseId = null;
+            }
+        }
     }
     return updateMetadata(state, timestamp);
 }
