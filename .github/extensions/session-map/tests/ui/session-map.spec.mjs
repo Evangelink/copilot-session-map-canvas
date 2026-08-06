@@ -151,9 +151,11 @@ test("toggles the graph and persists the selected view", async ({
     const canvas = await canvasFactory(stateWithSteps());
 
     await page.goto(canvas.url);
-    await page.getByRole("button", { name: "Graph" }).click();
+    await page.getByRole("button", { name: "Graph", exact: true }).click();
 
-    await expect(page.getByRole("button", { name: "Graph" })).toHaveAttribute(
+    await expect(
+        page.getByRole("button", { name: "Graph", exact: true }),
+    ).toHaveAttribute(
         "aria-pressed",
         "true",
     );
@@ -177,13 +179,57 @@ test("toggles the graph and persists the selected view", async ({
 
     await page.reload();
 
-    await expect(page.getByRole("button", { name: "Graph" })).toHaveAttribute(
+    await expect(
+        page.getByRole("button", { name: "Graph", exact: true }),
+    ).toHaveAttribute(
         "aria-pressed",
         "true",
     );
     await expect(
         page.getByRole("button", { name: "Timeline" }),
     ).toHaveAttribute("aria-pressed", "false");
+});
+
+test("zooms the dependency graph and retains zoom across updates", async ({
+    canvasFactory,
+    page,
+}) => {
+    const canvas = await canvasFactory(stateWithSteps());
+
+    await page.goto(canvas.url);
+    await page.getByRole("button", { name: "Graph", exact: true }).click();
+
+    const zoomLevel = page.getByLabel("Graph zoom level");
+    const graphCanvas = page.locator(".graph-canvas");
+    await expect(zoomLevel).toHaveText("100%");
+    await expect(
+        page.getByRole("button", { name: "Reset graph zoom" }),
+    ).toBeDisabled();
+
+    await page.getByRole("button", { name: "Zoom in graph" }).click();
+    await expect(zoomLevel).toHaveText("125%");
+    await expect
+        .poll(() => graphCanvas.evaluate((element) => element.style.width))
+        .toBe("125%");
+
+    canvas.recordStep({
+        id: "implementation",
+        title: "Implementing browser coverage",
+        description: "Updated while retaining graph zoom.",
+        status: "success",
+        dependsOn: ["research"],
+    });
+    await expect(zoomLevel).toHaveText("125%");
+
+    await page
+        .getByLabel("Zoomable dependency graph")
+        .dispatchEvent("wheel", { ctrlKey: true, deltaY: 100 });
+    await expect(zoomLevel).toHaveText("100%");
+
+    await page.getByRole("button", { name: "Zoom out graph" }).click();
+    await expect(zoomLevel).toHaveText("75%");
+    await page.getByRole("button", { name: "Reset graph zoom" }).click();
+    await expect(zoomLevel).toHaveText("100%");
 });
 
 test("applies live SSE state updates", async ({ canvasFactory, page }) => {

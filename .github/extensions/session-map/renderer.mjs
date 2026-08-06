@@ -212,7 +212,39 @@ export function renderHtml({ documentId }) {
       border-radius: 10px;
       min-height: 360px;
     }
-    svg { display: block; min-width: 760px; width: 100%; }
+    .graph-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .graph-toolbar button {
+      min-width: 34px;
+      border: 1px solid var(--border-color-default, #d1d9e0);
+      border-radius: 6px;
+      padding: 4px 8px;
+      color: var(--text-color-default, #1f2328);
+      background: var(--background-color-default, #fff);
+      cursor: pointer;
+    }
+    .graph-toolbar button:disabled {
+      color: var(--text-color-muted, #59636e);
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .graph-zoom-level {
+      min-width: 52px;
+      color: var(--text-color-muted, #59636e);
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .graph-canvas {
+      display: block;
+      min-width: 760px;
+      width: 100%;
+      height: auto;
+    }
     .graph-edge { fill: none; stroke: var(--border-color-default, #8c959f); stroke-width: 2; }
     .graph-node { fill: var(--background-color-default, #fff); stroke: var(--border-color-default, #d1d9e0); stroke-width: 1.5; }
     .graph-node.success { stroke: #1a7f37; }
@@ -354,6 +386,10 @@ export function renderHtml({ documentId }) {
     let currentState;
     let selectedStepId;
     let selectionPinned = false;
+    let graphZoom = 1;
+    const GRAPH_ZOOM_MIN = 0.5;
+    const GRAPH_ZOOM_MAX = 2;
+    const GRAPH_ZOOM_STEP = 0.25;
 
     function text(value) {
       return document.createTextNode(value ?? "");
@@ -523,8 +559,36 @@ export function renderHtml({ documentId }) {
     }
 
     function createGraph(steps) {
+      const container = document.createElement("div");
+      container.className = "graph-container";
+      const toolbar = document.createElement("div");
+      toolbar.className = "graph-toolbar";
+      toolbar.setAttribute("role", "toolbar");
+      toolbar.setAttribute("aria-label", "Graph zoom controls");
+      const zoomOut = document.createElement("button");
+      zoomOut.type = "button";
+      zoomOut.dataset.zoomAction = "out";
+      zoomOut.setAttribute("aria-label", "Zoom out graph");
+      zoomOut.append(text("−"));
+      const zoomLevel = document.createElement("output");
+      zoomLevel.className = "graph-zoom-level";
+      zoomLevel.setAttribute("aria-label", "Graph zoom level");
+      zoomLevel.setAttribute("aria-live", "polite");
+      const zoomIn = document.createElement("button");
+      zoomIn.type = "button";
+      zoomIn.dataset.zoomAction = "in";
+      zoomIn.setAttribute("aria-label", "Zoom in graph");
+      zoomIn.append(text("+"));
+      const resetZoom = document.createElement("button");
+      resetZoom.type = "button";
+      resetZoom.dataset.zoomAction = "reset";
+      resetZoom.setAttribute("aria-label", "Reset graph zoom");
+      resetZoom.append(text("Reset"));
+      toolbar.append(zoomOut, zoomLevel, zoomIn, resetZoom);
       const wrapper = document.createElement("div");
       wrapper.className = "graph-wrap";
+      wrapper.setAttribute("role", "group");
+      wrapper.setAttribute("aria-label", "Zoomable dependency graph");
       const lane = { goal: 35, phase: 285, milestone: 535, completion: 285 };
       const positions = new Map();
       steps.forEach((step, index) => {
@@ -532,6 +596,7 @@ export function renderHtml({ documentId }) {
       });
       const height = Math.max(360, 74 + steps.length * 118);
       const svg = svgElement("svg", {
+        class: "graph-canvas",
         viewBox: "0 0 800 " + height,
         role: "group",
         "aria-label": "Dependency graph containing " + steps.length + " session steps",
@@ -591,7 +656,39 @@ export function renderHtml({ documentId }) {
         accessibleList.append(item);
       }
       wrapper.append(svg, accessibleList);
-      return wrapper;
+      container.append(toolbar, wrapper);
+      return container;
+    }
+
+    function clampGraphZoom(value) {
+      return Math.min(GRAPH_ZOOM_MAX, Math.max(GRAPH_ZOOM_MIN, value));
+    }
+
+    function applyGraphZoom(value, origin) {
+      const viewport = elements.graph.querySelector(".graph-wrap");
+      const canvas = elements.graph.querySelector(".graph-canvas");
+      const level = elements.graph.querySelector(".graph-zoom-level");
+      if (!viewport || !canvas || !level) return;
+
+      const nextZoom = clampGraphZoom(Math.round(value * 100) / 100);
+      const previousZoom = Number(canvas.dataset.zoom) || 1;
+      const bounds = viewport.getBoundingClientRect();
+      const pointX = origin ? origin.clientX - bounds.left : viewport.clientWidth / 2;
+      const pointY = origin ? origin.clientY - bounds.top : viewport.clientHeight / 2;
+      const contentX = (viewport.scrollLeft + pointX) / previousZoom;
+      const contentY = (viewport.scrollTop + pointY) / previousZoom;
+
+      graphZoom = nextZoom;
+      canvas.dataset.zoom = String(nextZoom);
+      canvas.style.width = (nextZoom * 100) + "%";
+      canvas.style.minWidth = (760 * nextZoom) + "px";
+      level.value = Math.round(nextZoom * 100) + "%";
+      viewport.scrollLeft = contentX * nextZoom - pointX;
+      viewport.scrollTop = contentY * nextZoom - pointY;
+
+      elements.graph.querySelector('[data-zoom-action="out"]').disabled = nextZoom <= GRAPH_ZOOM_MIN;
+      elements.graph.querySelector('[data-zoom-action="in"]').disabled = nextZoom >= GRAPH_ZOOM_MAX;
+      elements.graph.querySelector('[data-zoom-action="reset"]').disabled = nextZoom === 1;
     }
 
     function createTranscript(events) {
@@ -713,6 +810,7 @@ export function renderHtml({ documentId }) {
       elements.empty.hidden = steps.length > 0;
       elements.timeline.replaceChildren(...(steps.length ? [createTimeline(steps)] : []));
       elements.graph.replaceChildren(...(steps.length ? [createGraph(steps)] : []));
+      applyGraphZoom(graphZoom);
       elements.transcriptList.replaceChildren(createTranscript(state.chatEvents ?? []));
       for (const stepId of expandedStepIds) {
         elements.timeline
@@ -776,8 +874,28 @@ export function renderHtml({ documentId }) {
       selectStep(target.dataset.stepId, { scrollTranscript: true, pinned: true });
     }
     elements.timeline.addEventListener("click", mapSelection);
-    elements.graph.addEventListener("click", mapSelection);
+    elements.graph.addEventListener("click", (event) => {
+      const zoomControl = event.target.closest("[data-zoom-action]");
+      if (zoomControl) {
+        const action = zoomControl.dataset.zoomAction;
+        applyGraphZoom(
+          action === "reset"
+            ? 1
+            : graphZoom + (action === "in" ? GRAPH_ZOOM_STEP : -GRAPH_ZOOM_STEP),
+        );
+        return;
+      }
+      mapSelection(event);
+    });
     elements.graph.addEventListener("keydown", mapSelection);
+    elements.graph.addEventListener("wheel", (event) => {
+      if ((!event.ctrlKey && !event.metaKey) || !event.target.closest(".graph-wrap")) return;
+      event.preventDefault();
+      applyGraphZoom(
+        graphZoom + (event.deltaY < 0 ? GRAPH_ZOOM_STEP : -GRAPH_ZOOM_STEP),
+        event,
+      );
+    }, { passive: false });
     elements.transcriptList.addEventListener("click", (event) => {
       const entry = event.target.closest(".chat-entry[data-step-id]");
       if (entry) selectStep(entry.dataset.stepId, { scrollMap: true, pinned: true });
