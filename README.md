@@ -32,6 +32,8 @@ development-time browser tests.
 - **Synchronized in-canvas navigation**: selecting a map step locates its chat
   activity, while selecting a transcript entry locates the related timeline or
   graph node
+- **Graph zoom controls** from 50% to 200%, including reset and
+  Ctrl/Cmd-wheel or trackpad pinch zoom
 - **Local, project-scoped persistence** with no runtime package install or
   build step
 
@@ -125,6 +127,10 @@ The equivalent canvas input is:
 
 Once open, use the **Timeline** and **Graph** controls in the canvas. The
 selected view is persisted in the session document.
+
+In Graph view, use the zoom controls to scale the dependency graph from 50% to
+200%. Ctrl/Cmd-wheel and trackpad pinch gestures zoom around the pointer; normal
+wheel scrolling remains available for navigating the graph.
 
 The **Chat activity** pane mirrors the user, assistant, and tool activity
 captured while Session Map is active. Select a timeline card or graph node to
