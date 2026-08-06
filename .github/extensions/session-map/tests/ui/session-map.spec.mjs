@@ -151,9 +151,11 @@ test("toggles the graph and persists the selected view", async ({
     const canvas = await canvasFactory(stateWithSteps());
 
     await page.goto(canvas.url);
-    await page.getByRole("button", { name: "Graph" }).click();
+    await page.getByRole("button", { name: "Graph", exact: true }).click();
 
-    await expect(page.getByRole("button", { name: "Graph" })).toHaveAttribute(
+    await expect(
+        page.getByRole("button", { name: "Graph", exact: true }),
+    ).toHaveAttribute(
         "aria-pressed",
         "true",
     );
@@ -177,7 +179,9 @@ test("toggles the graph and persists the selected view", async ({
 
     await page.reload();
 
-    await expect(page.getByRole("button", { name: "Graph" })).toHaveAttribute(
+    await expect(
+        page.getByRole("button", { name: "Graph", exact: true }),
+    ).toHaveAttribute(
         "aria-pressed",
         "true",
     );
@@ -193,7 +197,7 @@ test("zooms the dependency graph and retains zoom across updates", async ({
     const canvas = await canvasFactory(stateWithSteps());
 
     await page.goto(canvas.url);
-    await page.getByRole("button", { name: "Graph" }).click();
+    await page.getByRole("button", { name: "Graph", exact: true }).click();
 
     const zoomLevel = page.getByLabel("Graph zoom level");
     const graphCanvas = page.locator(".graph-canvas");
