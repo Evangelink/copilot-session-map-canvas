@@ -12,6 +12,8 @@ The extension runtime is dependency-free. It uses only Node.js built-ins and
 the Copilot extension SDK supplied by the CLI. Playwright is used only for
 development-time browser tests.
 
+[![Session Map timeline showing completed milestones, token usage, and live updates](docs/images/session-map-timeline.jpg)](docs/images/session-map-timeline.jpg)
+
 ## Features
 
 - **Timeline and graph views** over the same persisted session document
@@ -44,6 +46,10 @@ category, dependencies, tool activity, duration when derivable, and the
 available token breakdown.
 The **Graph** view uses the same steps and their dependencies to show how one
 piece of work leads to another while keeping token and AI Credit totals compact.
+
+| Expanded step details and chat activity | Dependency graph |
+| --- | --- |
+| [![Session Map with expanded step details and synchronized chat activity](docs/images/session-map-details.jpg)](docs/images/session-map-details.jpg) | [![Session Map dependency graph showing four connected milestones](docs/images/session-map-graph.jpg)](docs/images/session-map-graph.jpg) |
 
 A useful demo flow is:
 
