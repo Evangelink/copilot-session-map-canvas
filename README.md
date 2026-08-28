@@ -19,6 +19,8 @@ development-time browser tests.
 - **Timeline and graph views** over the same persisted session document
 - **Automatic capture** of user goals, coarse tool-activity phases, failures,
   and session completion
+- **Session checks** for build, tests, lint, and review, with running, verified,
+  unknown, failed, and stale evidence states
 - **Semantic milestones** that Copilot can create and update after meaningful
   work phases
 - **Explicit dependencies** between milestones, with validation against
@@ -70,7 +72,7 @@ A useful demo flow is:
 3. Reload extensions if the session was already running when the repository
    was cloned or updated.
 4. Confirm that the `/map` command, `session-map` canvas, and
-   `session_map_record_step` tool are available.
+   `session_map_record_step` and `session_map_record_check` tools are available.
 
 The project extension lives at:
 
@@ -198,6 +200,36 @@ To connect a later step to existing work, provide `dependsOn`:
 If `id` is omitted, Session Map allocates one. If `dependsOn` is omitted, a new
 semantic step depends on the most recent non-completion step when one exists.
 
+### Track session checks
+
+The **Checks** panel shows the latest evidence for build, tests, lint, and
+review. Recognized single-purpose local commands are correlated from tool start
+through tool completion without persisting command text or output. Chained or
+pipelined commands are intentionally not inferred because one process exit
+cannot establish which subcommands ran. A newer run supersedes an older
+concurrent run, and implementation activity marks earlier evidence as stale.
+
+Session Map deliberately distinguishes a successful tool invocation from a
+verified project outcome. Delegated build, test, or lint agents are shown as
+`unknown` when the extension cannot prove the underlying command result.
+Unrecognized commands remain **Not run** rather than producing a false positive.
+
+A completed `code-review` agent records neutral `unknown` evidence because
+completion does not mean its findings passed review. Record the interpreted
+outcome explicitly with `session_map_record_check`:
+
+```json
+{
+  "kind": "review",
+  "status": "passed",
+  "summary": "Reviewed the final diff; no blocking findings remain."
+}
+```
+
+Use `unknown` when an action ran but its outcome was not verified; it is also
+the default when `status` is omitted. Explicit evidence supports `passed`,
+`failed`, and `unknown`; `running` and `stale` are managed automatically.
+
 ### Status and dependency semantics
 
 | Status | Meaning |
@@ -220,6 +252,7 @@ dependency that creates a cycle is rejected. Updating an existing step without
 | `refresh` | Reload persisted state and push it to open views. |
 | `set_view` | Persist `timeline` or `graph`. |
 | `record_step` | Create or update a semantic milestone. |
+| `record_check` | Record explicit build, test, lint, or review evidence. |
 
 All canvas and action inputs use JSON Schema validation.
 
@@ -231,8 +264,14 @@ All canvas and action inputs use JSON Schema validation.
   steps with stable chat anchors.
 - Tool execution events group related activity into discovery, implementation,
   validation, publication, coordination, or general operation phases.
+- Recognized validation commands record build, test, and lint evidence from
+  start through completion. Code-review agents record review completion.
+- Successful implementation tool activity marks existing check evidence stale;
+  failed write attempts preserve it.
 - `session_map_record_step` captures semantic outcomes that cannot be inferred
   reliably from raw tool events.
+- `session_map_record_check` records explicit outcomes when automatic evidence
+  is unavailable or intentionally uncertain.
 - Live `assistant.usage` events add exact input, output, cache-read,
   cache-write, and AI Credit usage to the session and the active goal, phase, or
   milestone.
@@ -253,15 +292,15 @@ service. State is written locally under:
 The canvas web server listens only on `127.0.0.1`, uses an operating-system
 assigned ephemeral port, and closes with its canvas instance.
 
-Persisted automatic activity contains high-level summaries, tool names, numeric
-usage counters, and normalized excerpts of user and assistant messages used by
-the Chat activity pane. Tool arguments, tool results, and assistant reasoning
-are not persisted. User goals, chat excerpts, and descriptions supplied to
-semantic steps are persisted as part of the map, so avoid placing secrets or
-other sensitive information in those fields. Each document retains at most 400
-chat entries. The state files remain after the canvas closes; delete the
-workspace's `.copilot/session-map/` directory when you no longer want to retain
-them.
+Persisted automatic activity contains high-level summaries, tool names, check
+status and timing, numeric usage counters, and normalized excerpts of user and
+assistant messages used by the Chat activity pane. Tool arguments, command
+text, tool results, and assistant reasoning are not persisted. User goals, chat
+excerpts, and descriptions or summaries supplied to semantic steps and checks
+are persisted as part of the map, so avoid placing secrets or other sensitive
+information in those fields. Each document retains at most 400 chat entries.
+The state files remain after the canvas closes; delete the workspace's
+`.copilot/session-map/` directory when you no longer want to retain them.
 
 ## Architecture
 
@@ -311,6 +350,19 @@ context instead of silently falling back to memory.
     "modelCalls": 2
   },
   "completion": null,
+  "checks": {
+    "tests": {
+      "kind": "tests",
+      "status": "passed",
+      "source": "automatic",
+      "summary": "Tests passed.",
+      "toolName": "powershell",
+      "stepId": "phase-3",
+      "startedAt": "2026-08-04T12:02:00.000Z",
+      "completedAt": "2026-08-04T12:03:00.000Z",
+      "updatedAt": "2026-08-04T12:03:00.000Z"
+    }
+  },
   "steps": [
     {
       "id": "phase-3",
@@ -396,6 +448,13 @@ new document.
   SDK.
 - Automatic tool phases are intentionally coarse. Semantic phase titles and
   outcomes depend on Copilot calling `session_map_record_step`.
+- Check detection is intentionally conservative and command-pattern based.
+  Wrapper scripts, chained commands, or uncommon build systems may require
+  `session_map_record_check`. A recorded check is session evidence, not a
+  substitute for CI attestation.
+- Check staleness recognizes extension editing tools and common shell write
+  operations. Custom scripts that modify files without an observable write
+  signal may require recording the affected check again.
 - The current SDK failure hook fires for `failure` results only. Rejected,
   denied, and timed-out tool results are not delivered to
   `onPostToolUseFailure`, so those outcomes cannot be captured automatically.
@@ -442,7 +501,7 @@ For an interactive validation:
 1. Reload extensions.
 2. Confirm that `session-map` appears in the loaded-extension list and inspect
    its logs for startup errors.
-3. Inspect the canvas capabilities and verify the four actions listed above.
+3. Inspect the canvas capabilities and verify the five actions listed above.
 4. Open the canvas, record a semantic step, then update it using the returned
    id.
 5. Switch between Timeline and Graph and confirm that the update appears

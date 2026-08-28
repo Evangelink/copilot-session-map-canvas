@@ -96,6 +96,14 @@ export async function startCanvasServer({
                 );
                 return;
             }
+            if (req.method === "POST" && url.pathname === "/api/check") {
+                json(
+                    res,
+                    200,
+                    await actions.recordCheck(documentId, await readJson(req)),
+                );
+                return;
+            }
             if (req.method === "POST" && url.pathname === "/api/refresh") {
                 await readJson(req);
                 json(res, 200, await actions.refreshState(documentId));

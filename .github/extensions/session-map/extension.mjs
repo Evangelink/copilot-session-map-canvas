@@ -12,7 +12,12 @@ import {
 import {
     completeToolChatEvent,
     completeSession,
+    recordCheckCompletion,
+    recordCheckStart,
     recordChatEvent,
+    recordExplicitCheck,
+    recordMutationCompletion,
+    recordMutationStart,
     recordSemanticStep,
     recordSessionStart,
     recordToolActivity,
@@ -24,6 +29,7 @@ import {
 import {
     EMPTY_INPUT_SCHEMA,
     MAP_CANVAS_INPUT_SCHEMA,
+    RECORD_CHECK_SCHEMA,
     RECORD_STEP_SCHEMA,
     SET_VIEW_SCHEMA,
 } from "./schemas.mjs";
@@ -36,7 +42,9 @@ import { startCanvasServer } from "./server.mjs";
 const STEP_INSTRUCTION =
     "Session Map is active. After completing a meaningful high-level phase, call " +
     "`session_map_record_step` once with a concise title, outcome, and status. " +
-    "Do not call it for individual tool invocations. Reuse the returned step id to update an in-progress milestone.";
+    "Do not call it for individual tool invocations. Reuse the returned step id to update an in-progress milestone. " +
+    "Single-purpose build, test, and lint commands are detected automatically. For compound commands or unrecognized runners, " +
+    "call `session_map_record_check` with the verified outcome. After reviewing changes, call it with kind `review`.";
 
 const servers = new Map();
 
@@ -76,6 +84,15 @@ async function updateView(documentId, input) {
 async function addStep(documentId, input, source = "canvas") {
     return requireStore().mutate(documentId, (state) =>
         recordSemanticStep(state, input, {
+            source,
+            timestamp: new Date().toISOString(),
+        }),
+    );
+}
+
+async function addCheck(documentId, input, source = "canvas") {
+    return requireStore().mutate(documentId, (state) =>
+        recordExplicitCheck(state, input, {
             source,
             timestamp: new Date().toISOString(),
         }),
@@ -147,6 +164,16 @@ const canvas = createCanvas({
                     addStep(documentId, ctx.input),
                 ),
         },
+        {
+            name: "record_check",
+            description:
+                "Record explicit evidence for a build, test, lint, or review check.",
+            inputSchema: RECORD_CHECK_SCHEMA,
+            handler: (ctx) =>
+                forCanvasAction(ctx, (documentId) =>
+                    addCheck(documentId, ctx.input),
+                ),
+        },
     ],
     open: async (ctx) => {
         try {
@@ -176,6 +203,8 @@ const canvas = createCanvas({
                         refreshState,
                         setView: updateView,
                         recordStep: (id, input) => addStep(id, input, "canvas"),
+                        recordCheck: (id, input) =>
+                            addCheck(id, input, "canvas"),
                     },
                 });
                 servers.set(ctx.instanceId, entry);
@@ -233,6 +262,35 @@ session = await joinSession({
                             recorded: true,
                             stepId: step?.id,
                             status: step?.status,
+                        }),
+                    };
+                } catch (error) {
+                    return {
+                        resultType: "failure",
+                        textResultForLlm: error.message,
+                        error: error.message,
+                    };
+                }
+            },
+        },
+        {
+            name: "session_map_record_check",
+            description:
+                "Records explicit evidence that a build, test, lint, or review action ran. Use unknown unless its outcome was verified.",
+            parameters: RECORD_CHECK_SCHEMA,
+            handler: async (args, invocation) => {
+                try {
+                    const state = await addCheck(
+                        invocation.sessionId,
+                        args,
+                        "agent",
+                    );
+                    return {
+                        resultType: "success",
+                        textResultForLlm: JSON.stringify({
+                            recorded: true,
+                            kind: args.kind,
+                            status: state.checks[args.kind]?.status,
                         }),
                     };
                 } catch (error) {
@@ -351,7 +409,10 @@ session.on("assistant.message", (event) => {
 });
 
 session.on("tool.execution_start", (event) => {
-    if (event.data.toolName === "session_map_record_step") {
+    if (
+        event.data.toolName === "session_map_record_step" ||
+        event.data.toolName === "session_map_record_check"
+    ) {
         return;
     }
     mutateFromEvent(event, (state) => {
@@ -359,6 +420,18 @@ session.on("tool.execution_start", (event) => {
             toolName: event.data.toolName,
             toolArgs: event.data.arguments,
             status: "success",
+            timestamp: event.timestamp,
+        });
+        recordCheckStart(state, {
+            toolCallId: event.data.toolCallId,
+            toolName: event.data.toolName,
+            toolArgs: event.data.arguments,
+            timestamp: event.timestamp,
+        });
+        recordMutationStart(state, {
+            toolCallId: event.data.toolCallId,
+            toolName: event.data.toolName,
+            toolArgs: event.data.arguments,
             timestamp: event.timestamp,
         });
         return recordChatEvent(state, {
@@ -376,14 +449,24 @@ session.on("tool.execution_start", (event) => {
 });
 
 session.on("tool.execution_complete", (event) => {
-    mutateFromEvent(event, (state) =>
+    mutateFromEvent(event, (state) => {
         completeToolChatEvent(state, {
             id: event.id,
             toolCallId: event.data.toolCallId,
             success: event.data.success,
             timestamp: event.timestamp,
-        }),
-    );
+        });
+        recordMutationCompletion(state, {
+            toolCallId: event.data.toolCallId,
+            success: event.data.success,
+            timestamp: event.timestamp,
+        });
+        return recordCheckCompletion(state, {
+            toolCallId: event.data.toolCallId,
+            success: event.data.success,
+            timestamp: event.timestamp,
+        });
+    });
 });
 
 session.on("assistant.usage", (event) => {

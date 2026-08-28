@@ -80,6 +80,54 @@ export function renderHtml({ documentId }) {
     }
     .summary-label { display: block; color: var(--text-color-muted, #59636e); font-size: 12px; }
     .summary-value { display: block; margin-top: 2px; font-weight: var(--font-weight-semibold, 600); }
+    .checks {
+      margin-bottom: 18px;
+      border: 1px solid var(--border-color-default, #d1d9e0);
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .checks-title { margin: 0 0 10px; font-size: 15px; }
+    .check-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .check-card {
+      min-width: 0;
+      border: 1px solid var(--border-color-default, #d1d9e0);
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .check-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .check-name { font-weight: var(--font-weight-semibold, 600); }
+    .check-status {
+      flex: none;
+      border-radius: 999px;
+      padding: 1px 7px;
+      background: color-mix(in srgb, var(--text-color-muted, #59636e) 12%, transparent);
+      color: var(--text-color-muted, #59636e);
+      font-size: 12px;
+    }
+    .check-status.passed { background: color-mix(in srgb, var(--true-color-green, #1a7f37) 12%, transparent); color: var(--true-color-green, #1a7f37); }
+    .check-status.failed { background: color-mix(in srgb, var(--true-color-red, #cf222e) 12%, transparent); color: var(--true-color-red, #cf222e); }
+    .check-status.running { background: color-mix(in srgb, var(--true-color-blue, #0969da) 12%, transparent); color: var(--true-color-blue, #0969da); }
+    .check-status.stale, .check-status.unknown { background: color-mix(in srgb, var(--true-color-yellow, #9a6700) 14%, transparent); color: var(--true-color-yellow, #9a6700); }
+    .check-summary { min-height: 40px; margin: 7px 0; color: var(--text-color-muted, #59636e); font-size: 12px; }
+    .check-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
+    .locate-check {
+      border: 0;
+      padding: 0;
+      color: var(--true-color-blue, #0969da);
+      background: transparent;
+      cursor: pointer;
+      font-size: 11px;
+    }
     .connection {
       display: inline-flex;
       align-items: center;
@@ -313,6 +361,7 @@ export function renderHtml({ documentId }) {
       .shell { padding: 14px; }
       .header { flex-direction: column; }
       .summary { grid-template-columns: 1fr; }
+      .check-grid { grid-template-columns: 1fr 1fr; }
       .content-grid { grid-template-columns: 1fr; }
       .transcript { position: static; }
       .transcript-list { max-height: 420px; }
@@ -321,6 +370,9 @@ export function renderHtml({ documentId }) {
       .step-heading-meta { justify-content: flex-start; }
       .details-grid { grid-template-columns: 1fr; gap: 2px; }
       .details-grid dd { margin-bottom: 6px; }
+    }
+    @media (max-width: 420px) {
+      .check-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -346,6 +398,10 @@ export function renderHtml({ documentId }) {
       <div class="summary-card"><span class="summary-label">Outcome</span><span class="summary-value" id="outcome">In progress</span></div>
       <div class="summary-card"><span class="summary-label">Updates</span><span class="summary-value connection" id="connection" role="status">Connecting</span></div>
     </section>
+    <section class="checks" aria-labelledby="checksTitle">
+      <h2 class="checks-title" id="checksTitle">Checks</h2>
+      <div class="check-grid" id="checkList"></div>
+    </section>
     <div id="error" class="error" role="alert" hidden></div>
     <div class="content-grid">
       <div class="map-pane">
@@ -369,6 +425,7 @@ export function renderHtml({ documentId }) {
     const documentId = ${JSON.stringify(documentId)};
     const elements = {
       aiCreditTotal: document.getElementById("aiCreditTotal"),
+      checkList: document.getElementById("checkList"),
       connection: document.getElementById("connection"),
       empty: document.getElementById("empty"),
       error: document.getElementById("error"),
@@ -460,6 +517,61 @@ export function renderHtml({ documentId }) {
     function showError(message) {
       elements.error.textContent = message;
       elements.error.hidden = !message;
+    }
+
+    const CHECK_KINDS = [
+      ["build", "Build"],
+      ["tests", "Tests"],
+      ["lint", "Lint"],
+      ["review", "Review"],
+    ];
+
+    function checkStatusLabel(kind, status) {
+      if (!status) return "Not run";
+      if (kind === "review" && status === "passed") return "Completed";
+      return formatStatus(status);
+    }
+
+    function createChecks(checks, steps) {
+      const fragment = document.createDocumentFragment();
+      for (const [kind, label] of CHECK_KINDS) {
+        const check = checks?.[kind];
+        const status = check?.status ?? "not_run";
+        const card = document.createElement("article");
+        card.className = "check-card";
+        card.dataset.checkKind = kind;
+        card.tabIndex = -1;
+        const top = document.createElement("div");
+        top.className = "check-top";
+        const name = document.createElement("span");
+        name.className = "check-name";
+        name.append(text(label));
+        const badge = document.createElement("span");
+        badge.className = "check-status " + status;
+        badge.append(text(checkStatusLabel(kind, check?.status)));
+        top.append(name, badge);
+        const summary = document.createElement("p");
+        summary.className = "check-summary";
+        summary.append(text(check?.summary || "No evidence recorded in this session."));
+        const footer = document.createElement("div");
+        footer.className = "check-footer";
+        const time = document.createElement("span");
+        time.className = "muted";
+        time.append(text(check?.updatedAt ? formatTime(check.updatedAt) : "Not recorded"));
+        footer.append(time);
+        if (check?.stepId && steps.some((step) => step.id === check.stepId)) {
+          const locate = document.createElement("button");
+          locate.type = "button";
+          locate.className = "locate-check";
+          locate.dataset.linkedStepId = check.stepId;
+          locate.append(text("Locate step"));
+          locate.setAttribute("aria-label", "Locate session step for " + label + " check");
+          footer.append(locate);
+        }
+        card.append(top, summary, footer);
+        fragment.append(card);
+      }
+      return fragment;
     }
 
     function createTimeline(steps) {
@@ -772,6 +884,9 @@ export function renderHtml({ documentId }) {
       if (focused?.classList.contains("locate-chat")) {
         return { kind: "locate", stepId: focused.closest("[data-step-id]")?.dataset.stepId };
       }
+      if (focused?.classList.contains("locate-check")) {
+        return { kind: "check", checkKind: focused.closest("[data-check-kind]")?.dataset.checkKind };
+      }
       if (focused?.tagName === "SUMMARY") {
         return { kind: "summary", stepId: focused.closest("[data-step-id]")?.dataset.stepId };
       }
@@ -781,6 +896,12 @@ export function renderHtml({ documentId }) {
 
     function restoreDynamicFocus(focus) {
       if (!focus) return;
+      if (focus.kind === "check") {
+        const checkSelector = '[data-check-kind="' + CSS.escape(focus.checkKind) + '"]';
+        (document.querySelector(checkSelector + " .locate-check") ??
+          document.querySelector(checkSelector))?.focus({ preventScroll: true });
+        return;
+      }
       const selector = focus.kind === "chat"
         ? '.chat-entry[data-event-id="' + CSS.escape(focus.eventId) + '"]'
         : focus.kind === "locate"
@@ -807,6 +928,7 @@ export function renderHtml({ documentId }) {
         : steps.some((step) => step.status === "failure")
           ? "Needs attention"
           : "In progress";
+      elements.checkList.replaceChildren(createChecks(state.checks, steps));
       elements.empty.hidden = steps.length > 0;
       elements.timeline.replaceChildren(...(steps.length ? [createTimeline(steps)] : []));
       elements.graph.replaceChildren(...(steps.length ? [createGraph(steps)] : []));
@@ -899,6 +1021,16 @@ export function renderHtml({ documentId }) {
     elements.transcriptList.addEventListener("click", (event) => {
       const entry = event.target.closest(".chat-entry[data-step-id]");
       if (entry) selectStep(entry.dataset.stepId, { scrollMap: true, pinned: true });
+    });
+    elements.checkList.addEventListener("click", (event) => {
+      const locate = event.target.closest(".locate-check[data-linked-step-id]");
+      if (locate) {
+        selectStep(locate.dataset.linkedStepId, {
+          scrollMap: true,
+          scrollTranscript: true,
+          pinned: true,
+        });
+      }
     });
     elements.refresh.addEventListener("click", async () => {
       try {

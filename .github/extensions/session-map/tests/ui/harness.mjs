@@ -1,6 +1,7 @@
 import {
     createState,
     recordChatEvent,
+    recordExplicitCheck,
     recordSemanticStep,
     recordUsage,
     setPreferredView,
@@ -78,6 +79,27 @@ export function stateWithSteps() {
         totalNanoAiu: 2_500_000_000,
         timestamp: "2026-08-04T12:02:45.000Z",
     });
+    recordExplicitCheck(
+        state,
+        {
+            kind: "tests",
+            status: "passed",
+            summary: "Browser tests passed.",
+        },
+        {
+            source: "automatic",
+            timestamp: "2026-08-04T12:03:00.000Z",
+        },
+    );
+    recordExplicitCheck(
+        state,
+        {
+            kind: "review",
+            status: "unknown",
+            summary: "Review ran, but its outcome was not verified.",
+        },
+        { timestamp: "2026-08-04T12:04:00.000Z" },
+    );
     return state;
 }
 
