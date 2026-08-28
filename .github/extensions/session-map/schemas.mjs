@@ -67,3 +67,29 @@ export const RECORD_STEP_SCHEMA = {
         },
     },
 };
+
+export const RECORD_CHECK_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    required: ["kind"],
+    properties: {
+        kind: {
+            type: "string",
+            enum: ["build", "tests", "lint", "review"],
+            description: "The verification activity being recorded.",
+        },
+        status: {
+            type: "string",
+            enum: ["passed", "failed", "unknown"],
+            default: "unknown",
+            description:
+                "Use unknown when the activity ran but its outcome was not verified.",
+        },
+        summary: {
+            type: "string",
+            maxLength: 240,
+            description:
+                "A concise, privacy-safe outcome without command text or output.",
+        },
+    },
+};

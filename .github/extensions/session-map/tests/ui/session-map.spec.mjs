@@ -79,6 +79,34 @@ test("renders step status, details, and dependencies", async ({
     await expect(page.getByRole("complementary", { name: "Chat activity" })).toBeVisible();
 });
 
+test("renders check evidence and locates its linked step", async ({
+    canvasFactory,
+    page,
+}) => {
+    const canvas = await canvasFactory(stateWithSteps());
+
+    await page.goto(canvas.url);
+
+    const checks = page.getByRole("region", { name: "Checks" });
+    await expect(checks).toBeVisible();
+    await expect(
+        checks.locator('[data-check-kind="build"]'),
+    ).toContainText("Not run");
+    await expect(
+        checks.locator('[data-check-kind="tests"]'),
+    ).toContainText("passed");
+    await expect(
+        checks.locator('[data-check-kind="review"]'),
+    ).toContainText("unknown");
+
+    await checks
+        .getByRole("button", { name: "Locate session step for Tests check" })
+        .click();
+    await expect(
+        page.locator('#timelineView [data-step-id="implementation"]'),
+    ).toHaveClass(/selected/);
+});
+
 test("synchronizes step and transcript selection inside the canvas", async ({
     canvasFactory,
     page,

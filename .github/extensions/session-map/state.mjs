@@ -5,6 +5,21 @@ const VALID_STATUSES = new Set([
     "skipped",
 ]);
 const VALID_VIEWS = new Set(["timeline", "graph"]);
+const VALID_CHECK_KINDS = new Set(["build", "tests", "lint", "review"]);
+const VALID_CHECK_STATUSES = new Set([
+    "running",
+    "passed",
+    "failed",
+    "unknown",
+    "stale",
+]);
+const VALID_CHECK_SOURCES = new Set(["automatic", "agent", "canvas"]);
+const CHECK_LABELS = {
+    build: "Build",
+    tests: "Tests",
+    lint: "Lint",
+    review: "Review",
+};
 const TOKEN_FIELDS = [
     "inputTokens",
     "outputTokens",
@@ -128,6 +143,98 @@ function updateMetadata(state, timestamp) {
 
 function activeStepId(state) {
     return state.activePhaseId ?? state.lastRecordedStepId;
+}
+
+function cleanTimestamp(value) {
+    const cleaned = cleanText(value, 40);
+    if (!cleaned) {
+        return "";
+    }
+    const parsed = new Date(cleaned);
+    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+}
+
+function normalizeCheck(check, kind) {
+    if (
+        !check ||
+        typeof check !== "object" ||
+        !VALID_CHECK_KINDS.has(kind) ||
+        !VALID_CHECK_STATUSES.has(check.status)
+    ) {
+        return undefined;
+    }
+    return {
+        kind,
+        status: check.status,
+        source: VALID_CHECK_SOURCES.has(check.source)
+            ? check.source
+            : "automatic",
+        summary: cleanText(check.summary, 240),
+        toolName: cleanText(check.toolName, 120),
+        stepId: cleanIdentifier(check.stepId),
+        runId: cleanIdentifier(check.runId),
+        startedAt: cleanTimestamp(check.startedAt),
+        completedAt: cleanTimestamp(check.completedAt),
+        updatedAt: cleanTimestamp(check.updatedAt),
+    };
+}
+
+function normalizePendingCheckRuns(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return {};
+    }
+    return Object.fromEntries(
+        Object.entries(raw)
+            .slice(-20)
+            .flatMap(([runId, run]) => {
+                if (!run || typeof run !== "object") {
+                    return [];
+                }
+                const entries = Array.isArray(run.entries)
+                    ? run.entries
+                          .filter(
+                              (entry) =>
+                                  VALID_CHECK_KINDS.has(entry?.kind) &&
+                                  ["passed", "unknown"].includes(
+                                      entry.successStatus,
+                                  ),
+                          )
+                          .map((entry) => ({
+                              kind: entry.kind,
+                              successStatus: entry.successStatus,
+                              stale: entry.stale === true,
+                          }))
+                    : [];
+                return entries.length
+                    ? [
+                          [
+                              cleanIdentifier(runId),
+                              {
+                                  entries,
+                                  toolName: cleanText(run.toolName, 120),
+                                  startedAt: cleanTimestamp(run.startedAt),
+                                  stepId: cleanIdentifier(run.stepId),
+                              },
+                          ],
+                      ]
+                    : [];
+            }),
+    );
+}
+
+function normalizePendingMutationRuns(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return {};
+    }
+    return Object.fromEntries(
+        Object.entries(raw)
+            .slice(-50)
+            .flatMap(([runId, run]) => {
+                const id = cleanIdentifier(runId);
+                const startedAt = cleanTimestamp(run?.startedAt);
+                return id && startedAt ? [[id, { startedAt }]] : [];
+            }),
+    );
 }
 
 function ensureChatAnchors(step) {
@@ -254,6 +361,9 @@ export function createState({
         activeChatStepId: null,
         activeTurnId: null,
         chatEvents: [],
+        checks: {},
+        pendingCheckRuns: {},
+        pendingMutationRuns: {},
         steps: [],
     };
 }
@@ -339,6 +449,16 @@ export function normalizeState(raw, defaults) {
                   )
                   .slice(-CHAT_EVENT_LIMIT)
             : [],
+        checks: Object.fromEntries(
+            Object.entries(raw.checks ?? {}).flatMap(([kind, check]) => {
+                const value = normalizeCheck(check, kind);
+                return value ? [[kind, value]] : [];
+            }),
+        ),
+        pendingCheckRuns: normalizePendingCheckRuns(raw.pendingCheckRuns),
+        pendingMutationRuns: normalizePendingMutationRuns(
+            raw.pendingMutationRuns,
+        ),
     };
     const usage = normalizeUsage(raw.usage);
     if (usage) {
@@ -416,7 +536,9 @@ export function classifyToolActivity(toolName, toolArgs = {}) {
         return "validation";
     }
     if (
-        /(apply_patch|edit|create_file|write_file|rename|format)/.test(name)
+        /(?:^|[.:_-])(?:apply_patch|edit|create_file|write_file|update_file|delete_file|format_file)(?:$|[.:_-])/.test(
+            name,
+        )
     ) {
         return "implementation";
     }
@@ -427,6 +549,277 @@ export function classifyToolActivity(toolName, toolArgs = {}) {
         return "coordination";
     }
     return "operation";
+}
+
+function detectCheckActivity(toolName, toolArgs = {}) {
+    const name = cleanText(toolName, 160).toLowerCase();
+    const command = cleanText(toolArgs?.command, 2000)
+        .toLowerCase()
+        .replace(/^&\s+/, "");
+    const agentType = cleanText(
+        toolArgs?.agent_type ?? toolArgs?.agentType,
+        160,
+    ).toLowerCase();
+    const detected = new Map();
+    const add = (kind, successStatus = "passed") =>
+        detected.set(kind, { kind, successStatus });
+    const isSingleCommand = !/[;&|\r\n]/.test(command);
+
+    if (
+        /(?:^|[.:_-])(?:node_test|pytest|run-tests|code-testing-tester)(?:$|[.:_-])/.test(
+            name,
+        ) ||
+        (isSingleCommand &&
+            /^(?:node\s+--test|dotnet\s+test|go\s+test|cargo\s+test|pytest|python\s+-m\s+pytest)\b/.test(
+                command,
+            )) ||
+        (isSingleCommand &&
+            /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test(?::[\w.-]+)?\b/.test(
+                command,
+            ))
+    ) {
+        add("tests");
+    }
+    if (
+        /(?:^|[.:_-])(?:dotnet_build|code-testing-builder)(?:$|[.:_-])/.test(
+            name,
+        ) ||
+        (isSingleCommand &&
+            /^(?:dotnet\s+build|msbuild|go\s+build|cargo\s+build)\b/.test(
+                command,
+            )) ||
+        (isSingleCommand &&
+            /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build(?::[\w.-]+)?\b/.test(
+                command,
+            ))
+    ) {
+        add("build");
+    }
+    if (
+        /(?:^|[.:_-])(?:eslint|code-testing-linter)(?:$|[.:_-])/.test(name) ||
+        (isSingleCommand &&
+            /^(?:eslint|node\s+--check|dotnet\s+format)\b/.test(command)) ||
+        (isSingleCommand &&
+            /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?lint(?::[\w.-]+)?\b/.test(
+                command,
+            ))
+    ) {
+        add("lint");
+    }
+    if (name === "task") {
+        if (agentType === "code-review") {
+            add("review", "unknown");
+        } else if (/code-testing-tester$/.test(agentType)) {
+            add("tests", "unknown");
+        } else if (/code-testing-builder$/.test(agentType)) {
+            add("build", "unknown");
+        } else if (/code-testing-linter$/.test(agentType)) {
+            add("lint", "unknown");
+        }
+    }
+    return [...detected.values()];
+}
+
+export function classifyCheckActivity(toolName, toolArgs = {}) {
+    return detectCheckActivity(toolName, toolArgs).map((entry) => entry.kind);
+}
+
+function isProjectMutationActivity(toolName, toolArgs = {}) {
+    const name = cleanText(toolName, 160).toLowerCase();
+    const command = cleanText(toolArgs?.command, 2000)
+        .toLowerCase()
+        .replace(/^&\s+/, "");
+    const isDotnetFormatMutation =
+        /^dotnet\s+format\b/.test(command) &&
+        !/\s--verify-no-changes\b/.test(command);
+    return (
+        /(?:^|[.:_-])(?:apply_patch|edit|create_file|write_file|update_file|delete_file|format_file)(?:$|[.:_-])/.test(
+            name,
+        ) ||
+        /^(?:set-content|add-content|out-file|move-item|rename-item|remove-item|copy-item|new-item|git\s+apply|git\s+restore|git\s+checkout\s+--|sed\s+-i|perl\s+-pi|prettier\s+--write)(?:\s|$)/.test(
+            command,
+        ) ||
+        isDotnetFormatMutation ||
+        /^eslint\b.*\s--fix(?:\s|$)/.test(command) ||
+        /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?lint:fix\b/.test(command) ||
+        /(?:^|\s)>{1,2}(?!&)/.test(command)
+    );
+}
+
+export function recordMutationStart(state, input) {
+    const timestamp = isoTimestamp(input.timestamp);
+    const runId = cleanIdentifier(input.toolCallId);
+    if (
+        !runId ||
+        !isProjectMutationActivity(input.toolName, input.toolArgs)
+    ) {
+        return state;
+    }
+
+    state.pendingMutationRuns ??= {};
+    while (Object.keys(state.pendingMutationRuns).length >= 50) {
+        delete state.pendingMutationRuns[
+            Object.keys(state.pendingMutationRuns)[0]
+        ];
+    }
+    state.pendingMutationRuns[runId] = { startedAt: timestamp };
+    return updateMetadata(state, timestamp);
+}
+
+export function recordMutationCompletion(state, input) {
+    const timestamp = isoTimestamp(input.timestamp);
+    const runId = cleanIdentifier(input.toolCallId);
+    if (!state.pendingMutationRuns?.[runId]) {
+        return state;
+    }
+
+    delete state.pendingMutationRuns[runId];
+    if (input.success) {
+        markChecksStale(state, timestamp, runId);
+    }
+    return updateMetadata(state, timestamp);
+}
+
+export function recordCheckStart(state, input) {
+    const timestamp = isoTimestamp(input.timestamp);
+    const runId = cleanIdentifier(input.toolCallId);
+    const toolName = cleanText(input.toolName, 120) || "unknown tool";
+    const entries = detectCheckActivity(toolName, input.toolArgs);
+    if (!runId || entries.length === 0) {
+        return state;
+    }
+
+    state.checks ??= {};
+    state.pendingCheckRuns ??= {};
+    while (Object.keys(state.pendingCheckRuns).length >= 20) {
+        const oldestRunId = Object.keys(state.pendingCheckRuns)[0];
+        const oldestRun = state.pendingCheckRuns[oldestRunId];
+        for (const entry of oldestRun.entries) {
+            const check = state.checks[entry.kind];
+            if (check?.runId === oldestRunId) {
+                check.status = "unknown";
+                check.summary = `${CHECK_LABELS[entry.kind]} completion was not observed.`;
+                check.updatedAt = timestamp;
+                delete check.runId;
+            }
+        }
+        delete state.pendingCheckRuns[oldestRunId];
+    }
+    const stepId = activeStepId(state);
+    state.pendingCheckRuns[runId] = {
+        entries,
+        toolName,
+        startedAt: timestamp,
+        stepId,
+    };
+    for (const { kind } of entries) {
+        state.checks[kind] = {
+            kind,
+            status: "running",
+            source: "automatic",
+            summary: `${CHECK_LABELS[kind]} started.`,
+            toolName,
+            stepId,
+            runId,
+            startedAt: timestamp,
+            completedAt: "",
+            updatedAt: timestamp,
+        };
+    }
+    return updateMetadata(state, timestamp);
+}
+
+export function recordCheckCompletion(state, input) {
+    const timestamp = isoTimestamp(input.timestamp);
+    const runId = cleanIdentifier(input.toolCallId);
+    const pending = state.pendingCheckRuns?.[runId];
+    if (!pending) {
+        return state;
+    }
+
+    for (const entry of pending.entries) {
+        const check = state.checks?.[entry.kind];
+        if (check?.runId !== runId) {
+            continue;
+        }
+        const status = entry.stale
+            ? "stale"
+            : input.success
+              ? entry.successStatus
+              : "failed";
+        check.status = status;
+        check.summary =
+            status === "passed"
+                ? `${entry.kind === "review" ? "Review completed" : `${CHECK_LABELS[entry.kind]} passed`}.`
+                : status === "failed"
+                  ? `${CHECK_LABELS[entry.kind]} failed.`
+                  : status === "stale"
+                    ? "Project changes were recorded while this check was running."
+                    : `${CHECK_LABELS[entry.kind]} runner completed, but its outcome could not be verified.`;
+        check.completedAt = timestamp;
+        check.updatedAt = timestamp;
+        delete check.runId;
+    }
+    delete state.pendingCheckRuns[runId];
+    return updateMetadata(state, timestamp);
+}
+
+export function recordExplicitCheck(
+    state,
+    input,
+    { source = "agent", timestamp = new Date().toISOString() } = {},
+) {
+    const updatedAt = isoTimestamp(timestamp);
+    const kind = cleanText(input.kind, 40);
+    const status = input.status ?? "unknown";
+    if (!VALID_CHECK_KINDS.has(kind)) {
+        throw new StateValidationError(`Unsupported check kind "${kind}".`);
+    }
+    if (!["passed", "failed", "unknown"].includes(status)) {
+        throw new StateValidationError(`Unsupported check status "${status}".`);
+    }
+
+    state.checks ??= {};
+    const previous = state.checks[kind];
+    state.checks[kind] = {
+        kind,
+        status,
+        source,
+        summary:
+            cleanText(input.summary, 240) ||
+            `${kind === "review" ? "Review completed" : `${CHECK_LABELS[kind]} ${status}`}.`,
+        toolName: "",
+        stepId: activeStepId(state),
+        startedAt: previous?.startedAt ?? updatedAt,
+        completedAt: updatedAt,
+        updatedAt,
+    };
+    return updateMetadata(state, updatedAt);
+}
+
+function markChecksStale(state, timestamp, excludedRunId) {
+    for (const check of Object.values(state.checks ?? {})) {
+        if (check.status === "stale" || check.runId === excludedRunId) {
+            continue;
+        }
+        if (check.status === "running") {
+            const pending = state.pendingCheckRuns?.[check.runId];
+            const entry = pending?.entries.find(
+                (candidate) => candidate.kind === check.kind,
+            );
+            if (entry) {
+                entry.stale = true;
+                check.summary =
+                    "Project changes were recorded while this check was running.";
+                check.updatedAt = timestamp;
+            }
+            continue;
+        }
+        check.status = "stale";
+        check.summary = "Project changes were recorded after this check.";
+        check.updatedAt = timestamp;
+        delete check.runId;
+    }
 }
 
 export function recordToolActivity(state, input) {
@@ -666,6 +1059,23 @@ export function setPreferredView(state, view) {
 export function completeSession(state, input) {
     const timestamp = isoTimestamp(input.timestamp);
     finishActivePhase(state, timestamp);
+    for (const check of Object.values(state.checks ?? {})) {
+        if (check.status !== "running") {
+            continue;
+        }
+        const pending = state.pendingCheckRuns?.[check.runId];
+        const entry = pending?.entries.find(
+            (candidate) => candidate.kind === check.kind,
+        );
+        check.status = entry?.stale ? "stale" : "unknown";
+        check.summary = entry?.stale
+            ? "Project changes were recorded while this check was running."
+            : `${CHECK_LABELS[check.kind]} completion was not observed.`;
+        check.updatedAt = timestamp;
+        delete check.runId;
+    }
+    state.pendingCheckRuns = {};
+    state.pendingMutationRuns = {};
     const status =
         input.reason === "complete"
             ? "success"
